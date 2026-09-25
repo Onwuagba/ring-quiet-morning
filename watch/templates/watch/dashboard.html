@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quiet Morning - {{ h.name }}</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:640px;margin:0 auto;padding:16px;background:#faf8f5;color:#222}
+.card{background:#fff;border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 1px 3px #0002}
+button{font-size:1.1rem;padding:12px 20px;border:0;border-radius:8px;cursor:pointer;margin-right:8px}
+.ok{background:#2e7d32;color:#fff}.help{background:#c62828;color:#fff}.plain{background:#333;color:#fff}
+.msg{padding:8px 12px;border-radius:8px;background:#e8f5e9}.error{background:#ffebee}
+li{padding:4px 0}small{color:#666}
+</style></head><body>
+<h1>{{ h.name }}'s morning</h1>
+<p><small>{{ now|date:"l j F, H:i" }}. Only door/motion metadata is used. No video, ever.</small></p>
+{% for m in messages %}<p class="msg {{ m.tags }}" role="status">{{ m }}</p>{% endfor %}
+
+<div class="card">
+{% if checkin and checkin.resolution == "all_ok" %}<h2>All OK, confirmed</h2>
+{% elif checkin and checkin.resolution == "needs_help" %}<h2>Marked as needing help</h2>
+{% elif checkin %}<h2>Quiet morning: check-in sent</h2><p>Please call {{ h.name }}, then confirm.</p>
+{% elif events %}<h2>Normal: activity seen today</h2>
+{% else %}<h2>No activity yet</h2><p><small>A check-in goes out at {{ effective|time:"H:i" }} if it stays quiet.</small></p>{% endif %}
+<form method="post">{% csrf_token %}
+<button class="ok" name="action" value="all_ok">All OK</button>
+<button class="help" name="action" value="needs_help">Need help</button></form>
+</div>
+
+<div class="card"><h3>Today's timeline</h3>
+<ul>{% for e in events %}<li>{{ e.at|time:"H:i" }} - {{ e.kind }}{% if e.device %} <small>({{ e.device }})</small>{% endif %}</li>
+{% empty %}<li><small>Nothing yet today.</small></li>{% endfor %}</ul></div>
+
+<div class="card"><h3>Usual morning</h3>
+{% if baseline %}<p>Over {{ baseline.days }} mornings, first activity is usually around
+{{ baseline.median_time|time:"H:i" }} and rarely later than {{ baseline.p90_time|time:"H:i" }}.</p>
+{% else %}<p><small>Still learning; needs about 5 mornings of data. Using your fixed time.</small></p>{% endif %}
+<p>Check-in time in use: <strong>{{ effective|time:"H:i" }}</strong></p></div>
+
+<div class="card"><h3>Quiet window settings</h3>
+<form method="post">{% csrf_token %}<input type="hidden" name="action" value="settings">
+<p><label>Morning starts {{ form.window_start }}</label></p>
+<p><label>Check in by {{ form.check_by }}</label></p>
+<p><label>{{ form.adaptive }} Adapt to their usual routine</label></p>
+<button class="plain">Save</button></form></div>
+</body></html>
