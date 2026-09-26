@@ -36,7 +36,25 @@ def ack_url(n):
     return site(reverse("ack", args=[n.ack_token]))
 
 
+def _opener(checkin, target, h):
+    """Optional Bedrock-written warm opener for the two soft steps only. Emergency, help and device messages never get one."""
+    if checkin.kind == "sensor" or target.kind == "emergency" or checkin.state == "help_requested":
+        return ""
+    from .aws import wording
+    facts = {"first_name_or_label": h.name, "usual_first_activity": (checkin.explanation or "")[:160]}
+    return wording.opener("nudge" if target.kind == "nudge" else "caregiver", facts)
+
+
 def compose(checkin, target, n):
+    text = _compose(checkin, target, n)
+    try:
+        lead = _opener(checkin, target, checkin.household)
+    except Exception:  # noqa - wording is optional and must never block a check-in
+        lead = ""
+    return f"{lead} {text}" if lead else text
+
+
+def _compose(checkin, target, n):
     h = checkin.household
     url = ack_url(n)
     if checkin.kind == "sensor":

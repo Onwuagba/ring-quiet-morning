@@ -16,5 +16,12 @@ Show the terminal output once for the scenario story, then the UI.
 | 2:25 | Large-type toggle, install prompt | "Large type for older caregivers, installable on any phone." |
 | 2:30 | Title card | "Quiet Morning. Peace of mind without watching." |
 
+Optional AWS beat (only if you ran it live; otherwise skip or show the code/tests): at 1:30 show a caregiver message with the
+generated opener, then point at the untouched safety text and the ack link. Say: "The model only writes the warm first line. What
+happened, the confidence, 'not an emergency' and the confirm link are fixed text, and if Bedrock is down or a guardrail trips the
+message still goes out." At 2:10 show `pytest`-style output of the safety-floor tests: "The advisor agent can suggest, never suppress."
+Mention the stack in one breath: Lambda function URL, SQS with a dead-letter queue, EventBridge Scheduler, RDS Postgres, Bedrock.
+
 Do not claim: that Ring delivers heartbeat/battery events, that the webhook signature matches Ring's, or that push and
-Telegram were tested live. Say "prototype on simulated Ring events".
+Telegram were tested live, or that any AWS service (Bedrock, Strands, SQS, Lambda, Scheduler, RDS) was run live unless you did. Never say the AI
+decides when to alert; the rules do, the model only words and advises. Say "prototype on simulated Ring events".

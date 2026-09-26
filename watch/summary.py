@@ -31,6 +31,13 @@ def build(h, now=None):
 
 def render(h, s):
     lines = [f"Quiet Morning: your week with {h.name}", ""]
+    try:
+        from .aws import wording
+        story = wording.weekly_narrative(h.name, s)
+    except Exception:  # noqa - optional
+        story = ""
+    if story:
+        lines += [story, ""]
     lines.append(f"Activity seen on {s['days_seen']} of the last 7 mornings."
                  + (f" First activity averaged {s['avg_first']}." if s["avg_first"] else ""))
     lines.append("No quiet mornings this week." if not s["quiet_count"] else

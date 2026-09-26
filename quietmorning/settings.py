@@ -39,7 +39,22 @@ TEMPLATES = [{
         "django.contrib.messages.context_processors.messages", "watch.context.ui"]},
 }]
 WSGI_APPLICATION = "quietmorning.wsgi.application"
-DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": os.getenv("DB_PATH", BASE_DIR / "db.sqlite3")}}
+def _database():
+    """SQLite by default. DATABASE_URL=postgres://user:pass@host:5432/name switches to Postgres (needs psycopg,
+    see requirements-aws.txt). Postgres is recommended for real use: escalation uses SELECT ... FOR UPDATE."""
+    url = os.getenv("DATABASE_URL", "")
+    if not url:
+        return {"ENGINE": "django.db.backends.sqlite3", "NAME": os.getenv("DB_PATH", BASE_DIR / "db.sqlite3")}
+    from urllib.parse import unquote, urlparse
+    u = urlparse(url)
+    if u.scheme not in ("postgres", "postgresql"):
+        raise ValueError("DATABASE_URL must be postgres://...")
+    return {"ENGINE": "django.db.backends.postgresql", "NAME": u.path.lstrip("/"), "USER": unquote(u.username or ""),
+            "PASSWORD": unquote(u.password or ""), "HOST": u.hostname or "", "PORT": u.port or "",
+            "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "60"))}
+
+
+DATABASES = {"default": _database()}
 AUTH_PASSWORD_VALIDATORS = [{"NAME": f"django.contrib.auth.password_validation.{n}"} for n in
                             ("UserAttributeSimilarityValidator", "MinimumLengthValidator",
                              "CommonPasswordValidator", "NumericPasswordValidator")]
@@ -101,3 +116,19 @@ import sys  # noqa: E402
 if "test" in sys.argv:
     LOGGING["loggers"]["watch"]["level"] = "CRITICAL"
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]   # tests only: PBKDF2 makes each setUp seconds long
+
+# ---- Optional AWS pieces. Everything defaults to OFF; the deterministic product works with none of it. ----
+AWS_REGION = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+# Bedrock Converse. BEDROCK_MODEL_ID is deliberately empty by default: pick an ID your account can call
+# (bare model ID or an inference-profile ID, see docs/AWS_STACK.md). Empty = feature off.
+BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "")
+BEDROCK_WORDING = os.getenv("BEDROCK_WORDING", "0").lower() in ("1", "true", "yes", "on")   # gentle wording + weekly narrative
+BEDROCK_GUARDRAIL_ID = os.getenv("BEDROCK_GUARDRAIL_ID", "")
+BEDROCK_GUARDRAIL_VERSION = os.getenv("BEDROCK_GUARDRAIL_VERSION", "")
+BEDROCK_DAILY_CALL_CAP = int(os.getenv("BEDROCK_DAILY_CALL_CAP", "200"))          # hard cap on model calls per day
+BEDROCK_MAX_OUTPUT_TOKENS = int(os.getenv("BEDROCK_MAX_OUTPUT_TOKENS", "200"))
+BEDROCK_TIMEOUT_SECONDS = int(os.getenv("BEDROCK_TIMEOUT_SECONDS", "8"))
+# Care-coordinator advisor: off | bedrock (Converse) | strands (Strands Agents SDK). Advisory only, see watch/aws/advisor.py.
+AI_ADVISOR = os.getenv("AI_ADVISOR", "off").lower()
+# SQS worker (replaces Celery + Redis when running the AWS-native path)
+SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL", "")

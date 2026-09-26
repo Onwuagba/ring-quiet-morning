@@ -175,6 +175,7 @@ class CheckIn(models.Model):
     resolved_at = models.DateTimeField(null=True, blank=True)
     resolution = models.CharField(max_length=40, blank=True)   # all_ok / needs_help / person_ok
     acknowledged_by = models.CharField(max_length=120, blank=True)
+    advice = models.CharField(max_length=300, blank=True, help_text="Advisory note from the optional care-coordinator agent (never binding)")
 
     class Meta:
         unique_together = [("household", "date", "kind")]
@@ -238,3 +239,11 @@ class PushSubscription(models.Model):
     p256dh = models.CharField(max_length=200)
     auth = models.CharField(max_length=100)
     created_at = models.DateTimeField(default=timezone.now)
+
+
+class AiUsage(models.Model):
+    """Per-day counter for optional model calls, used for the hard cost cap (see watch/aws/bedrock.py)."""
+    date = models.DateField(unique=True)
+    calls = models.PositiveIntegerField(default=0)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)

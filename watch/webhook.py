@@ -18,12 +18,15 @@ from .models import DeviceStatus, Event, Household
 log = logging.getLogger("watch.webhook")
 
 
-def valid_signature(request) -> bool:
+def sign_ok(signature: str, raw: bytes) -> bool:
     # TODO-verify: PLACEHOLDER scheme. The real Ring webhook signature header/algorithm is unknown to us;
     # confirm in the Ring developer docs and replace. Do not treat this as Ring's actual scheme.
-    sig = request.headers.get("X-Ring-Signature", "")
-    expected = hmac.new(settings.RING_WEBHOOK_SECRET.encode(), request.body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(sig, expected)
+    expected = hmac.new(settings.RING_WEBHOOK_SECRET.encode(), raw, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature or "", expected)
+
+
+def valid_signature(request) -> bool:
+    return sign_ok(request.headers.get("X-Ring-Signature", ""), request.body)
 
 
 def _reject(reason, status=400, **extra):
@@ -31,21 +34,22 @@ def _reject(reason, status=400, **extra):
     return HttpResponseForbidden() if status == 403 else HttpResponseBadRequest(reason)
 
 
-@csrf_exempt
-@require_POST
-def ring_webhook(request):
-    if not valid_signature(request):
-        return _reject("bad signature", 403)
+def ingest(raw: bytes, signature: str, now=None, check_replay=True):
+    """Validate and store one Ring event. Returns (http_status, reason). Shared by the HTTP view and the SQS worker
+    (which passes now=<time the edge received it> and check_replay=False, because queue delay is not a replay)."""
+    if not sign_ok(signature, raw):
+        return 403, "bad signature"
     try:
-        body = json.loads(request.body)
+        body = json.loads(raw)
     except (ValueError, UnicodeDecodeError):
-        return _reject("invalid json")
+        return 400, "invalid json"
     if not isinstance(body, dict) or not isinstance(body.get("location_id"), str):
-        return _reject("missing location_id")
+        return 400, "missing location_id"
     household = Household.objects.filter(ring_location_id=body["location_id"]).first()
     if household is None:
-        return _reject("unknown location", location=body["location_id"][:40])
-    now = timezone.now()
+        log.warning("webhook rejected", extra={"reason": "unknown location", "location": body["location_id"][:40]})
+        return 400, "unknown location"
+    now = now or timezone.now()
     when = None
     if body.get("created_at"):
         try:
@@ -53,16 +57,16 @@ def ring_webhook(request):
         except ValueError:
             when = None
         if when is None:
-            return _reject("bad created_at")
+            return 400, "bad created_at"
         if timezone.is_naive(when):
             when = timezone.make_aware(when, timezone.utc)
     window = settings.RING_REPLAY_WINDOW_SECONDS
-    if window and when is not None and not (-300 <= (now - when).total_seconds() <= window):
-        return _reject("stale or future timestamp", household=household.pk)   # replay protection
+    if check_replay and window and when is not None and not (-300 <= (now - when).total_seconds() <= window):
+        return 400, "stale or future timestamp"   # replay protection
     kind = str(body.get("event_type", "unknown"))[:40]
     device = str(body.get("device_id", ""))[:100]
     # Idempotency: prefer Ring's event id (TODO-verify field name), else hash of the exact body.
-    ext = str(body.get("event_id") or body.get("id") or hashlib.sha256(request.body).hexdigest())[:100]
+    ext = str(body.get("event_id") or body.get("id") or hashlib.sha256(raw).hexdigest())[:100]
     at = when or now
     try:
         with transaction.atomic():
@@ -72,9 +76,18 @@ def ring_webhook(request):
                 _touch_device(household, device, at, body, kind)
     except IntegrityError:
         log.info("duplicate delivery ignored", extra={"household": household.pk})   # acknowledge, do not double-record
-        return HttpResponse(status=204)
+        return 204, "duplicate"
     log.info("event stored", extra={"household": household.pk, "kind": kind})
-    return HttpResponse(status=204)
+    return 204, "stored"
+
+
+@csrf_exempt
+@require_POST
+def ring_webhook(request):
+    code, reason = ingest(request.body, request.headers.get("X-Ring-Signature", ""))
+    if code == 204:
+        return HttpResponse(status=204)
+    return _reject(reason, 403 if code == 403 else 400)
 
 
 def _touch_device(h, device, at, body, kind):

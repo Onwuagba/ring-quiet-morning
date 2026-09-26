@@ -14,7 +14,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python manage.py migrate
 .venv/bin/python manage.py simulate_demo --reset      # scripted scenarios, prints an audit trail
 .venv/bin/python manage.py runserver                  # http://localhost:8000  (log in: amina / demo-pass-12345)
-.venv/bin/python manage.py test                       # 143 tests
+.venv/bin/python manage.py test                       # 170 tests
 ```
 
 Docker (web + celery worker + celery beat + redis): `cp .env.example .env && docker compose up --build`.
@@ -89,7 +89,7 @@ The database keeps the last scenario's state so the dashboard is ready to film. 
 
 ## Verified vs unverified
 
-Verified here (automated tests, 143): rules engine, escalation, quiet hours, retry/backoff, auth and roles, invites,
+Verified here (automated tests, 170): rules engine, escalation, quiet hours, retry/backoff, auth and roles, invites,
 onboarding, privacy enforcement, export/delete, retention, webhook robustness, weekly summary, demo scenarios, PWA
 manifest/service-worker responses, push subscription endpoint. Also verified by hand: `docker compose up` builds and
 runs web + worker + beat + redis, `/healthz/?deep=1` reports the broker, and the worker executes `tick`.
@@ -116,4 +116,20 @@ runs web + worker + beat + redis, `/healthz/?deep=1` reports the broker, and the
 - Not a medical or emergency service. Silence is ambiguous (person out, guests, device asleep); wording reflects that.
 - The person being cared for has no login; consent is a checkbox by the owner, not a verified flow.
 
-Docs: `docs/video-script.md`, `docs/amazon-feedback.md`, `docs/deploy-aws.md`. License: MIT
+Docs: `docs/AWS_STACK.md`, `docs/video-script.md`, `docs/amazon-feedback.md`, `docs/deploy-aws.md`. License: MIT
+
+## AWS (optional, all off by default)
+
+The deterministic product needs none of this. Each piece is switched on by env vars and is tested offline with fakes;
+**none of it has run against a live AWS account.** Full decisions with sources: `docs/AWS_STACK.md`.
+
+- **Bedrock Converse** (`BEDROCK_MODEL_ID`, `BEDROCK_WORDING=1`): a warm opener on the soft nudge / caregiver messages and a short
+  weekly narrative. The model never writes the safety text ("not an emergency", the ack link, emergency-contact, help and device
+  messages stay templates). Output is validated (no medical terms, links, invented numbers); any doubt falls back to the template.
+  Optional Guardrail, hard daily call cap.
+- **Care-coordinator advisor** (`AI_ADVISOR=bedrock|strands`): reviews only ambiguous mornings and suggests nudge/wait/escalate.
+  Advisory: it cannot suppress or delay an escalation (tests compare full timelines); `escalate` only skips the nudge.
+- **Postgres** (`DATABASE_URL`) with `SELECT ... FOR UPDATE` on check-ins so several workers are safe.
+- **AWS-native events**: `infra/quiet-morning.yml` (Lambda function URL -> SQS + DLQ, EventBridge Scheduler instead of Celery beat,
+  RDS Postgres, Secrets Manager, alarms, least-privilege task role), worker `python manage.py sqs_worker`. See `docs/deploy-aws.md`.
+- Deliberately **not** used: AgentCore, SageMaker (no honest fit; reasons in AWS_STACK.md), SNS, DynamoDB, API Gateway.

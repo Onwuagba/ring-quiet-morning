@@ -1,8 +1,9 @@
 FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DJANGO_DEBUG=0
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements-aws.txt ./
+ARG WITH_AWS=0
+RUN pip install --no-cache-dir -r requirements.txt && if [ "$WITH_AWS" = "1" ]; then pip install --no-cache-dir -r requirements-aws.txt; fi
 COPY . .
 RUN useradd -m app && mkdir -p /data && chown -R app /app /data
 USER app

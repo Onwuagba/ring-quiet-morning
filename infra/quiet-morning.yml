@@ -1,0 +1,208 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Quiet Morning event pipeline: Lambda function URL (Ring webhook edge) -> SQS (+DLQ) -> worker,
+  EventBridge Scheduler for periodic jobs, RDS Postgres, Secrets Manager, CloudWatch alarms, least-privilege task role.
+  NOT deployed by the authors (no AWS credentials were available). Lint: cfn-lint infra/quiet-morning.yml.
+
+Parameters:
+  LambdaCodeBucket: {Type: String, Description: "S3 bucket holding ingest.zip (zip of infra/lambda_ingest.py)"}
+  LambdaCodeKey: {Type: String, Default: ingest.zip}
+  RingWebhookSecret: {Type: String, NoEcho: true, MinLength: 16, Description: "Shared secret (placeholder scheme, see watch/webhook.py)"}
+  IngestReservedConcurrency: {Type: Number, Default: 10, Description: "Caps webhook spend/abuse; RPS limit is 10x this. Needs unreserved account concurrency headroom."}
+  ScheduleTimeZone: {Type: String, Default: Africa/Lagos}
+  BedrockModelArns: {Type: CommaDelimitedList, Default: "", Description: "ARNs the app may invoke (foundation model / inference profile). Empty = no Bedrock permission."}
+  DbSubnetIds: {Type: "List<AWS::EC2::Subnet::Id>", Description: "Private subnets (2+ AZs) for RDS"}
+  DbSecurityGroupId: {Type: "AWS::EC2::SecurityGroup::Id", Description: "Allows 5432 from the ECS tasks only"}
+  DbDeletionProtection: {Type: String, Default: "true", AllowedValues: ["true", "false"]}
+
+Conditions:
+  HasBedrock: !Not [!Equals [!Join ["", !Ref BedrockModelArns], ""]]
+
+Resources:
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties: {MessageRetentionPeriod: 1209600, SqsManagedSseEnabled: true}
+
+  EventQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy: {deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn, maxReceiveCount: 5}
+
+  RingSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties: {Description: Ring webhook shared secret, SecretString: !Ref RingWebhookSecret}
+
+  IngestLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: {RetentionInDays: 30}
+
+  IngestRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: [{Effect: Allow, Principal: {Service: lambda.amazonaws.com}, Action: "sts:AssumeRole"}]
+      Policies:
+        - PolicyName: ingest
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - {Effect: Allow, Action: "sqs:SendMessage", Resource: !GetAtt EventQueue.Arn}
+              - {Effect: Allow, Action: "secretsmanager:GetSecretValue", Resource: !Ref RingSecret}
+              - {Effect: Allow, Action: ["logs:CreateLogStream", "logs:PutLogEvents"], Resource: !GetAtt IngestLogs.Arn}
+
+  IngestFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: lambda_ingest.handler
+      Role: !GetAtt IngestRole.Arn
+      Timeout: 10
+      MemorySize: 128
+      ReservedConcurrentExecutions: !Ref IngestReservedConcurrency
+      Code: {S3Bucket: !Ref LambdaCodeBucket, S3Key: !Ref LambdaCodeKey}
+      Environment: {Variables: {QUEUE_URL: !Ref EventQueue, SECRET_ARN: !Ref RingSecret}}
+      LoggingConfig: {LogGroup: !Ref IngestLogs}
+
+  IngestUrl:
+    Type: AWS::Lambda::Url
+    Properties: {AuthType: NONE, TargetFunctionArn: !GetAtt IngestFunction.Arn}   # NONE: Ring cannot sign with SigV4; HMAC is checked in code
+
+  IngestUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: "lambda:InvokeFunctionUrl"
+      FunctionName: !Ref IngestFunction
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: [{Effect: Allow, Principal: {Service: scheduler.amazonaws.com}, Action: "sts:AssumeRole"}]
+      Policies:
+        - PolicyName: send
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement: [{Effect: Allow, Action: "sqs:SendMessage", Resource: !GetAtt EventQueue.Arn}]
+
+  TickSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      ScheduleExpression: rate(1 minute)
+      FlexibleTimeWindow: {Mode: "OFF"}
+      Target: {Arn: !GetAtt EventQueue.Arn, RoleArn: !GetAtt SchedulerRole.Arn, Input: '{"type": "tick"}'}
+
+  PurgeSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      ScheduleExpression: cron(30 3 * * ? *)
+      ScheduleExpressionTimezone: !Ref ScheduleTimeZone
+      FlexibleTimeWindow: {Mode: "OFF"}
+      Target: {Arn: !GetAtt EventQueue.Arn, RoleArn: !GetAtt SchedulerRole.Arn, Input: '{"type": "purge"}'}
+
+  WeeklySchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      ScheduleExpression: cron(0 8 ? * MON *)
+      ScheduleExpressionTimezone: !Ref ScheduleTimeZone
+      FlexibleTimeWindow: {Mode: "OFF"}
+      Target: {Arn: !GetAtt EventQueue.Arn, RoleArn: !GetAtt SchedulerRole.Arn, Input: '{"type": "weekly_summary"}'}
+
+  # Attach to the ECS task definition running `python manage.py sqs_worker` (and the web service).
+  AppTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: [{Effect: Allow, Principal: {Service: ecs-tasks.amazonaws.com}, Action: "sts:AssumeRole"}]
+      Policies:
+        - PolicyName: queue
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - {Effect: Allow, Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"], Resource: !GetAtt EventQueue.Arn}
+        - !If
+          - HasBedrock
+          - PolicyName: bedrock
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                # TODO-verify the exact action names Converse and ApplyGuardrail are authorised by.
+                - {Effect: Allow, Action: ["bedrock:InvokeModel", "bedrock:ApplyGuardrail"], Resource: !Ref BedrockModelArns}
+          - !Ref "AWS::NoValue"
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      Engine: postgres
+      DBInstanceClass: db.t4g.micro
+      AllocatedStorage: 20
+      StorageEncrypted: true
+      DBName: quietmorning
+      MasterUsername: qm
+      ManageMasterUserPassword: true
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups: [!Ref DbSecurityGroupId]
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 7
+      DeletionProtection: !Ref DbDeletionProtection
+
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties: {DBSubnetGroupDescription: Quiet Morning, SubnetIds: !Ref DbSubnetIds}
+
+  DlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Messages in the dead-letter queue (an event or job failed 5 times)
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{Name: QueueName, Value: !GetAtt DeadLetterQueue.QueueName}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  QueueAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Worker is not keeping up (the 1-minute tick is stale, so escalations could be late)
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions: [{Name: QueueName, Value: !GetAtt EventQueue.QueueName}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 5
+      Threshold: 300
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  IngestErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Ring webhook edge is erroring
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref IngestFunction}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  RingWebhookUrl: {Value: !GetAtt IngestUrl.FunctionUrl, Description: Give this to Ring as the webhook target}
+  SqsQueueUrl: {Value: !Ref EventQueue, Description: Set as SQS_QUEUE_URL for the worker}
+  AppTaskRoleArn: {Value: !GetAtt AppTaskRole.Arn}
+  DatabaseEndpoint: {Value: !GetAtt Database.Endpoint.Address}

@@ -1,0 +1,4 @@
+# Optional. Only needed when the matching feature is switched on (see docs/AWS_STACK.md). Not installed in the test venv.
+boto3            # Bedrock Converse, SQS worker
+psycopg[binary]>=3.1   # DATABASE_URL=postgres://...
+strands-agents   # AI_ADVISOR=strands (TODO-verify version pin; needs Python 3.10+ per PyPI/README)
