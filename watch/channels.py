@@ -1,5 +1,5 @@
 """Delivery channels. Each returns Result(status, detail): sent | stubbed (not configured) | error.
-Twilio SMS/WhatsApp and web push are config-flagged and are stubs (logged only) without keys."""
+Telegram and web push are stubs (logged only) without keys."""
 import json
 import logging
 from collections import namedtuple
@@ -8,7 +8,7 @@ from django.conf import settings
 from django.core.mail import send_mail
 
 log = logging.getLogger("watch.channels")
-Result = namedtuple("Result", "status detail")
+Result = namedtuple("Result", "status detail extra", defaults=(None,))
 
 
 def mask(dest: str) -> str:
@@ -25,28 +25,20 @@ def email(to, subject, body, **_):
     return Result("sent", "email handed to backend " + settings.EMAIL_BACKEND.rsplit(".", 2)[-2])
 
 
-def _twilio(to, body, sender, prefix, flag):
-    if not flag:
-        return Result("stubbed", "channel disabled by config flag")
-    sid, tok = settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN
-    if not (sid and tok and sender):
-        log.info("twilio stub", extra={"channel": prefix or "sms", "to": mask(to)})
-        return Result("stubbed", "Twilio keys not set: logged only")
-    if not to:
-        return Result("error", "no phone number")
-    import requests
-    r = requests.post(f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json", auth=(sid, tok), timeout=10,
-                      data={"From": f"{prefix}{sender}", "To": f"{prefix}{to}", "Body": body})
-    return Result("sent", f"twilio {r.status_code}") if r.ok else Result("error", f"twilio {r.status_code}: {r.text[:120]}")
-
-
-def sms(to, body, **_):
-    return _twilio(to, body, settings.TWILIO_SMS_FROM, "", settings.SMS_ENABLED)
-
-
-def whatsapp(to, body, **_):
-    # TODO-verify: WhatsApp business-initiated messages need pre-approved templates outside the 24h session window.
-    return _twilio(to, body, settings.TWILIO_WHATSAPP_FROM, "whatsapp:", settings.WHATSAPP_ENABLED)
+def telegram(chat_id, body, ack_token=None, **_):
+    """Send via the Telegram Bot API with 'All OK' / 'Need help' buttons. Result.extra carries the message id."""
+    from . import telegram as tg
+    if not chat_id:
+        return Result("error", "no telegram chat linked")
+    if not tg.configured():
+        log.info("telegram stub", extra={"channel": "telegram"})
+        return Result("stubbed", "Telegram bot token not set: logged only")
+    try:
+        msg = tg.send_message(chat_id, body, tg.keyboard(ack_token) if ack_token else None)
+    except tg.TelegramError as e:
+        why = f"telegram {e.code}: {e}"[:150] + (f" (retry after {e.retry_after}s)" if e.retry_after else "")
+        return Result("error", why)
+    return Result("sent", "telegram delivered", (msg or {}).get("message_id"))
 
 
 def push(user, title, body, url="/", **_):

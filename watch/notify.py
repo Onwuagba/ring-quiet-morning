@@ -21,7 +21,7 @@ class Target:
     label: str
     kind: str                        # nudge / caregiver / emergency
     email: str = ""
-    phone: str = ""
+    chat_id: int = None              # Telegram chat, set once linked (never logged or displayed)
     user: object = None
     contact: object = None
     channels: list = field(default_factory=list)
@@ -64,19 +64,17 @@ def in_quiet_hours(m, now) -> bool:
 
 
 def channels_for_member(m: Membership):
-    return [c for c, on in (("email", m.notify_email), ("push", m.notify_push), ("sms", m.notify_sms),
-                            ("whatsapp", m.notify_whatsapp)) if on]
+    return [c for c, on in (("email", m.notify_email), ("push", m.notify_push), ("telegram", m.notify_telegram)) if on]
 
 
 def deliver(checkin, step, target: Target, now, urgent=False):
     """Send to one target over each of its channels. Returns the Notification rows (the audit trail)."""
     quiet = not urgent and in_quiet_hours(target.membership, now)
     rows = []
-    dest = {"email": target.email, "sms": target.phone, "whatsapp": target.phone,
-            "push": "web push"}
+    dest = {"email": target.email, "telegram": "Telegram", "push": "web push"}
     for ch in target.channels:
         n = Notification.objects.create(checkin=checkin, step=step, step_kind=target.kind, recipient=target.label,
-                                        destination=channels.mask(dest.get(ch, "")) if ch != "push" else "web push",
+                                        destination=channels.mask(dest.get(ch, "")) if ch == "email" else dest.get(ch, ""),
                                         channel=ch, user=target.user, contact=target.contact, created_at=now)
         n.text = compose(checkin, target, n)
         if quiet and ch != "email":
@@ -102,10 +100,13 @@ def attempt(n: Notification, target: Target, now):
     try:
         if n.channel == "email":
             r = channels.email(target.email, subject, n.text)
-        elif n.channel == "sms":
-            r = channels.sms(target.phone, n.text)
-        elif n.channel == "whatsapp":
-            r = channels.whatsapp(target.phone, n.text)
+        elif n.channel == "telegram":
+            r = channels.telegram(target.chat_id, n.text, ack_token=n.ack_token)
+            if r.status == "error" and "no telegram chat linked" in r.detail:
+                n.status, n.detail, n.next_retry_at = "skipped", r.detail, None
+                return
+            if r.extra:
+                n.telegram_message_id = r.extra
         elif n.channel == "push":
             r = channels.push(target.user, subject, n.text[:140], url=ack_url(n))
             if r.status == "error" and "no push subscription" in r.detail:
@@ -131,10 +132,10 @@ def target_for(n: Notification):
     if n.user_id:
         m = Membership.objects.filter(user=n.user, household=h).first()
         p = getattr(n.user, "profile", None)
-        return Target(n.recipient, "caregiver", email=n.user.email, phone=getattr(p, "phone", ""), user=n.user, membership=m)
+        return Target(n.recipient, "caregiver", email=n.user.email, chat_id=getattr(p, "telegram_chat_id", None), user=n.user, membership=m)
     if n.contact_id:
-        return Target(n.recipient, "emergency", email=n.contact.email, phone=n.contact.phone, contact=n.contact)
-    return Target(n.recipient, "nudge", phone=h.person_phone)
+        return Target(n.recipient, "emergency", email=n.contact.email, chat_id=n.contact.telegram_chat_id, contact=n.contact)
+    return Target(n.recipient, "nudge", chat_id=h.person_telegram_chat_id)
 
 
 def retry_due(now=None) -> int:

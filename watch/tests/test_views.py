@@ -319,21 +319,21 @@ class DashboardTests(Base):
 class PrefsAndPwaTests(Base):
     def test_prefs_saved_and_large_type_applied(self):
         self.login()
-        r = self.client.post(f"/h/{self.h.pk}/me/", {"phone": "+2349", "large_type": "on", "notify_sms": "on",
+        r = self.client.post(f"/h/{self.h.pk}/me/", {"phone": "+2349", "large_type": "on", "notify_telegram": "on",
                                                     "notify_email": "on", "quiet_start": "22:00", "quiet_end": "07:00"})
         self.assertEqual(r.status_code, 302)
         self.ma.refresh_from_db()
-        self.assertTrue(self.ma.notify_sms and not self.ma.notify_push)
+        self.assertTrue(self.ma.notify_telegram and not self.ma.notify_push)
         self.assertEqual(str(self.ma.quiet_start), "22:00:00")
         self.assertContains(self.client.get(f"/h/{self.h.pk}/"), 'class="large"')
 
     def test_prefs_are_per_caregiver(self):
         self.login(self.tunde)
-        self.client.post(f"/h/{self.h.pk}/me/", {"notify_whatsapp": "on"})
+        self.client.post(f"/h/{self.h.pk}/me/", {"notify_email": "on"})
         self.ma.refresh_from_db()
         self.mt.refresh_from_db()
-        self.assertTrue(self.mt.notify_whatsapp)
-        self.assertFalse(self.ma.notify_whatsapp)
+        self.assertFalse(self.mt.notify_telegram)
+        self.assertTrue(self.ma.notify_telegram)
 
     def test_toggle_large_type(self):
         self.login()

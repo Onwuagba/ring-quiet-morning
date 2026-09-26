@@ -32,8 +32,8 @@ class PersonForm(forms.ModelForm):
 
     class Meta:
         model = Household
-        fields = ["name", "ring_location_id", "person_phone", "nudge_enabled"]
-        labels = {"name": "Who are you caring for?", "person_phone": "Their phone (optional)",
+        fields = ["name", "ring_location_id", "nudge_enabled"]
+        labels = {"name": "Who are you caring for?",
                   "nudge_enabled": "Send them a gentle hello first, before alerting anyone"}
 
     def clean_ring_location_id(self):
@@ -62,11 +62,11 @@ class MorningForm(forms.ModelForm):
 
 class SettingsForm(MorningForm):
     class Meta(MorningForm.Meta):
-        fields = ["window_start", "check_by", "adaptive", "daylight_aware", "latitude", "longitude", "person_phone",
+        fields = ["window_start", "check_by", "adaptive", "daylight_aware", "latitude", "longitude",
                   "nudge_enabled", "escalation_minutes", "sensor_silent_hours", "retention_days"]
         labels = {**MorningForm.Meta.labels, "escalation_minutes": "Minutes between escalation steps",
                   "sensor_silent_hours": "Hours with no events at all before we suspect the device",
-                  "retention_days": "Keep event history for (days)", "person_phone": "Their phone (for the gentle hello)",
+                  "retention_days": "Keep event history for (days)",
                   "nudge_enabled": "Send them a gentle hello first"}
 
     def clean_retention_days(self):
@@ -103,16 +103,16 @@ class AwayForm(forms.Form):
 
 
 class PrefsForm(forms.ModelForm):
-    phone = forms.CharField(required=False, label="Your phone (for SMS/WhatsApp)")
+    phone = forms.CharField(required=False, label="Your phone number (for others to call you; optional)")
     large_type = forms.BooleanField(required=False, label="Large type and high contrast")
     quiet_start = forms.TimeField(required=False, widget=T(), label="Quiet hours start")
     quiet_end = forms.TimeField(required=False, widget=T(), label="Quiet hours end")
 
     class Meta:
         model = Membership
-        fields = ["notify_email", "notify_push", "notify_sms", "notify_whatsapp", "quiet_start", "quiet_end", "weekly_summary"]
-        labels = {"notify_email": "Email", "notify_push": "Push notification (this device)", "notify_sms": "SMS",
-                  "notify_whatsapp": "WhatsApp", "weekly_summary": "Weekly summary email"}
+        fields = ["notify_email", "notify_push", "notify_telegram", "quiet_start", "quiet_end", "weekly_summary"]
+        labels = {"notify_email": "Email", "notify_push": "Push notification (this device)", "notify_telegram": "Telegram (connect below)",
+                   "weekly_summary": "Weekly summary email"}
 
 
 class EmergencyContactForm(forms.ModelForm):

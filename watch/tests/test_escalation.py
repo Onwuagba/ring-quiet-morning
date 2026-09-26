@@ -21,7 +21,7 @@ class ChainTests(Base):
         self.h.nudge_enabled = True
         self.h.save()
         for m in (self.ma, self.mt):
-            m.notify_sms = True
+            m.notify_telegram = True
             m.save()
         self.t0 = at(9, 0)
 
@@ -78,7 +78,7 @@ class ChainTests(Base):
         escalation.acknowledge(c, "needs_help", user=self.amina, now=self.t0 + timedelta(minutes=1))
         c.refresh_from_db()
         self.assertEqual(c.state, "help_requested")
-        self.assertTrue(Notification.objects.filter(recipient="Tunde", channel="sms", status="stubbed").exists())
+        self.assertTrue(Notification.objects.filter(recipient="Tunde", channel="telegram", status="stubbed").exists())
         self.assertTrue(Notification.objects.filter(recipient="Aunty").exists())
 
     def test_ack_by_token_from_message_link(self):
@@ -96,7 +96,7 @@ class ChainTests(Base):
         self.tick(self.t0)
         rows = {n.channel: n.status for n in Notification.objects.filter(recipient="Amina")}
         self.assertEqual(rows["email"], "sent")
-        self.assertEqual(rows["sms"], "deferred")
+        self.assertEqual(rows["telegram"], "deferred")
 
     def test_quiet_hours_wrap_midnight(self):
         self.ma.quiet_start, self.ma.quiet_end = at(22).time(), at(7).time()
@@ -107,7 +107,7 @@ class ChainTests(Base):
     def test_step_with_no_channels_advances_immediately(self):
         self.h.nudge_enabled = False
         self.h.save()
-        for f in ("notify_email", "notify_push", "notify_sms", "notify_whatsapp"):
+        for f in ("notify_email", "notify_push", "notify_telegram"):
             setattr(self.ma, f, False)
         self.ma.save()
         self.tick(self.t0)
@@ -185,39 +185,23 @@ class RetryTests(Base):
         self.assertEqual(Notification.objects.get(recipient="Amina", channel="email").status, "skipped")
 
     def test_one_broken_channel_does_not_block_others(self):
-        self.ma.notify_sms = True
+        self.ma.notify_telegram = True
         self.ma.save()
-        with mock.patch("watch.channels.sms", side_effect=RuntimeError("x")):
+        with mock.patch("watch.channels.telegram", side_effect=RuntimeError("x")):
             with mock.patch("django.utils.timezone.now", return_value=self.t0):
                 tasks.tick()
         st = {n.channel: n.status for n in Notification.objects.filter(recipient="Amina")}
         self.assertEqual(st["email"], "sent")
-        self.assertEqual(st["sms"], "retrying")
+        self.assertEqual(st["telegram"], "retrying")
 
 
 class ChannelTests(Base):
-    @override_settings(SMS_ENABLED=True, TWILIO_ACCOUNT_SID="", TWILIO_AUTH_TOKEN="", TWILIO_SMS_FROM="")
-    def test_sms_stub_without_keys(self):
-        self.assertEqual(channels.sms("+234", "hi").status, "stubbed")
+    @override_settings(TELEGRAM_BOT_TOKEN="")
+    def test_telegram_stub_without_token(self):
+        self.assertEqual(channels.telegram(5, "hi").status, "stubbed")
 
-    @override_settings(SMS_ENABLED=False)
-    def test_sms_disabled_by_flag(self):
-        self.assertEqual(channels.sms("+234", "hi").status, "stubbed")
-
-    @override_settings(WHATSAPP_ENABLED=True, TWILIO_ACCOUNT_SID="AC1", TWILIO_AUTH_TOKEN="t", TWILIO_WHATSAPP_FROM="+1415")
-    def test_whatsapp_posts_to_twilio(self):
-        with mock.patch("requests.post") as post:
-            post.return_value.ok, post.return_value.status_code = True, 201
-            r = channels.whatsapp("+234999", "hello")
-        self.assertEqual(r.status, "sent")
-        self.assertEqual(post.call_args.kwargs["data"]["To"], "whatsapp:+234999")
-        self.assertIn("AC1", post.call_args.args[0])
-
-    @override_settings(SMS_ENABLED=True, TWILIO_ACCOUNT_SID="AC1", TWILIO_AUTH_TOKEN="t", TWILIO_SMS_FROM="+1415")
-    def test_twilio_http_error_is_reported(self):
-        with mock.patch("requests.post") as post:
-            post.return_value.ok, post.return_value.status_code, post.return_value.text = False, 400, "bad"
-            self.assertEqual(channels.sms("+234", "x").status, "error")
+    def test_telegram_unlinked_is_an_error_not_a_send(self):
+        self.assertEqual(channels.telegram(None, "hi").detail, "no telegram chat linked")
 
     @override_settings(VAPID_PRIVATE_KEY="", VAPID_PUBLIC_KEY="")
     def test_push_stub_and_no_subscription(self):

@@ -111,3 +111,22 @@ def healthz(request):
             out.update(broker="unreachable", status="degraded")
             code = 503
     return JsonResponse(out, status=code)
+
+
+@csrf_exempt
+@require_POST
+def telegram_webhook(request):
+    """Telegram calls this with the secret_token given to setWebhook in X-Telegram-Bot-Api-Secret-Token.
+    Fails closed: with no secret configured, every request is rejected."""
+    secret = settings.TELEGRAM_WEBHOOK_SECRET
+    got = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not secret or not hmac.compare_digest(got.encode(), secret.encode()):
+        return _reject("bad telegram secret", 403)
+    try:
+        update = json.loads(request.body)
+    except ValueError:
+        return _reject("bad json")
+    if isinstance(update, dict):
+        from . import tgbot
+        tgbot.handle_update(update)
+    return HttpResponse("ok")   # always 200 once authenticated, so Telegram does not redeliver

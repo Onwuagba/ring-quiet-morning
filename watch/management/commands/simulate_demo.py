@@ -1,4 +1,4 @@
-"""Scripted, offline demo scenarios on a fake clock. Nothing needs Ring, Redis, Twilio or the internet.
+"""Scripted, offline demo scenarios on a fake clock. Nothing needs Ring, Redis, a Telegram bot or the internet.
 
   python manage.py simulate_demo --reset                 # all scenarios, ends on the quiet-morning story
   python manage.py simulate_demo --scenario offline      # one scenario: normal | late | offline | quiet
@@ -10,16 +10,18 @@ from contextlib import contextmanager
 from datetime import datetime, time, timedelta
 from unittest import mock
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from watch import escalation, rules
+from watch import escalation, rules, telegram as tg, tgbot
 from watch.models import (CheckIn, DeviceStatus, EmergencyContact, Event, ExpectedLate, Household, Membership,
                           Notification, Profile)
 from watch.tasks import tick
 
 PASSWORD = "demo-pass-12345"
+DEMO_CHATS = {"mama": 9001, "amina": 9002, "tunde": 9003, "aunty": 9004}   # fake chat ids, used only by the fake transport
 SCENARIOS = ["normal", "late", "offline", "quiet"]
 
 
@@ -49,23 +51,45 @@ class Command(BaseCommand):
         if o["reset"]:
             Household.objects.filter(ring_location_id="demo-loc").delete()
             User.objects.filter(username__in=["amina", "tunde"]).delete()
-        from django.conf import settings
         settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"   # keep the demo output readable
         logging.getLogger("watch").setLevel(logging.ERROR)
+        self.fake_tg = not settings.TELEGRAM_BOT_TOKEN
+        if self.fake_tg:
+            tg.set_transport(self.fake_transport)   # no token: messages are printed, not sent
         self.tz = timezone.get_current_timezone()
         self.today = timezone.localdate()
         self.h = self.setup_household(User)
         names = SCENARIOS if o["scenario"] == "all" else [o["scenario"]]
         for name in names:
             getattr(self, "scenario_" + name)()
+        tg.set_transport(None)
         self.say("Done")
         self.line(f"Open http://localhost:8000/h/{self.h.pk}/  and log in as amina / {PASSWORD}")
         self.line("The database now holds the state of the last scenario: " + names[-1])
 
+    def fake_transport(self, method, payload):
+        self.msg_id = getattr(self, "msg_id", 100) + 1
+        if method == "sendMessage":
+            btns = [b["text"] for row in (payload.get("reply_markup") or {}).get("inline_keyboard", []) for b in row]
+            who = {DEMO_CHATS[c]: c for c in DEMO_CHATS}.get(payload["chat_id"], "?")
+            self.line(f"[Telegram -> {who}] {payload['text'][:110]}" + (f"   buttons: {' | '.join(btns)}" if btns else ""))
+            return {"message_id": self.msg_id}
+        if method == "editMessageText":
+            self.line(f"[Telegram edit] {payload['text'][:110]}")
+        return True
+
+    def press(self, user, button_prefix):
+        """Simulate the caregiver tapping a button on their latest Telegram message."""
+        n = Notification.objects.filter(user__username=user, channel="telegram", step_kind="caregiver").exclude(
+            telegram_message_id=None).last()
+        chat = DEMO_CHATS[user]
+        tgbot.handle_update({"callback_query": {"id": "1", "from": {"id": chat}, "data": f"{button_prefix}:{n.ack_token.hex}",
+                                                "message": {"message_id": n.telegram_message_id, "chat": {"id": chat}}}})
+
     def setup_household(self, User):
         h, created = Household.objects.get_or_create(
             ring_location_id="demo-loc",
-            defaults=dict(name="Mama Ngozi", window_start=time(5), check_by=time(9), person_phone="+2340000001",
+            defaults=dict(name="Mama Ngozi", window_start=time(5), check_by=time(9), person_telegram_chat_id=DEMO_CHATS["mama"],
                           nudge_enabled=True, escalation_minutes=20, consent_at=timezone.now(),
                           latitude=6.52, longitude=3.38, daylight_aware=True))
         amina, _ = User.objects.get_or_create(username="amina", defaults=dict(first_name="Amina", email="amina@example.com"))
@@ -73,14 +97,14 @@ class Command(BaseCommand):
         for u, ph in ((amina, "+2340000002"), (tunde, "+2340000003")):
             u.set_password(PASSWORD)
             u.save()
-            Profile.objects.update_or_create(user=u, defaults={"phone": ph})
+            Profile.objects.update_or_create(user=u, defaults={"phone": ph, "telegram_chat_id": DEMO_CHATS[u.username]})
         # Amina works nights, so her phone is silent 06:00-08:45 unless things become urgent.
         Membership.objects.update_or_create(user=amina, household=h, defaults=dict(
-            role="owner", priority=1, notify_sms=True, notify_push=True, quiet_start=time(6), quiet_end=time(8, 45)))
+            role="owner", priority=1, notify_telegram=True, notify_push=True, quiet_start=time(6), quiet_end=time(8, 45)))
         Membership.objects.update_or_create(user=tunde, household=h, defaults=dict(
-            role="caregiver", priority=2, notify_sms=True, notify_whatsapp=True))
+            role="caregiver", priority=2, notify_telegram=True))
         EmergencyContact.objects.get_or_create(household=h, name="Aunty Ngozi", defaults=dict(
-            relation="neighbour", phone="+2340000004", email="aunty@example.com"))
+            relation="neighbour", phone="+2340000004", email="aunty@example.com", telegram_chat_id=DEMO_CHATS["aunty"]))
         return h
 
     def at(self, d, hh, mm=0):
@@ -189,13 +213,13 @@ class Command(BaseCommand):
         self.run_tick(t)
         self.say(f"   {nudge} min later, no reply: Amina (her phone is silent until 08:45, so email only)")
         self.run_tick(t + timedelta(minutes=nudge))
-        self.say(f"   {step} min later, still nothing: Tunde, over SMS and WhatsApp")
+        self.say(f"   {step} min later, still nothing: Tunde, on Telegram with All OK / Need help buttons")
         self.run_tick(t + timedelta(minutes=nudge + step))
-        self.say("   Tunde taps the link and confirms")
+        self.say("   Tunde taps 'All OK' in Telegram")
         step = nudge + step
         c = CheckIn.objects.get(household=self.h, kind="quiet")
         with clock(t + timedelta(minutes=step + 4)):
-            escalation.acknowledge(c, "all_ok", user=get_user_model().objects.get(username="tunde"))
+            self.press("tunde", "ok")
         self.line(f"state: {CheckIn.objects.get(pk=c.pk).state}; the chain stopped before the emergency contact")
         self.say("   Audit trail")
         self.audit()

@@ -4,7 +4,6 @@ import logging
 from datetime import timedelta
 from dataclasses import dataclass, field
 
-from django.conf import settings
 from django.utils import timezone
 
 from . import notify
@@ -25,7 +24,7 @@ class Step:
 def _member_target(m):
     p = getattr(m.user, "profile", None)
     return Target(m.user.get_full_name() or m.user.username, "caregiver", email=m.user.email,
-                  phone=getattr(p, "phone", ""), user=m.user, channels=notify.channels_for_member(m), membership=m)
+                  chat_id=getattr(p, "telegram_chat_id", None), user=m.user, channels=notify.channels_for_member(m), membership=m)
 
 
 def build_chain(h, kind=CheckIn.QUIET):
@@ -41,16 +40,15 @@ def build_chain(h, kind=CheckIn.QUIET):
                 targets.append(_member_target(m))
         return [Step("caregiver", "Device notice", targets)] if targets else []
     chain = []
-    if h.nudge_enabled and h.person_phone:
-        chs = ["sms"] + (["whatsapp"] if settings.WHATSAPP_ENABLED else [])
-        chain.append(Step("nudge", h.name, [Target(h.name, "nudge", phone=h.person_phone, channels=chs)]))
+    if h.nudge_enabled and h.person_telegram_chat_id:
+        chain.append(Step("nudge", h.name, [Target(h.name, "nudge", chat_id=h.person_telegram_chat_id, channels=["telegram"])]))
     for m in members:
         t = _member_target(m)
         chain.append(Step("caregiver", t.label, [t]))
     contacts = []
     for c in h.emergency_contacts.all():
-        chs = (["email"] if c.email else []) + (["sms"] if c.phone else []) + (["whatsapp"] if c.phone and settings.WHATSAPP_ENABLED else [])
-        contacts.append(Target(c.name, "emergency", email=c.email, phone=c.phone, contact=c, channels=chs))
+        chs = (["email"] if c.email else []) + (["telegram"] if c.telegram_chat_id else [])
+        contacts.append(Target(c.name, "emergency", email=c.email, chat_id=c.telegram_chat_id, contact=c, channels=chs))
     if contacts:
         chain.append(Step("emergency", "Emergency contacts", contacts))
     return chain
@@ -106,13 +104,14 @@ def start(h, assessment, now=None, kind=CheckIn.QUIET):
     return checkin
 
 
-def acknowledge(checkin: CheckIn, resolution="all_ok", user=None, name="", now=None):
+def acknowledge(checkin: CheckIn, resolution="all_ok", user=None, name="", now=None, contact=None):
     """all_ok / person_ok close the chain; needs_help immediately alerts every remaining step as urgent."""
     now = now or timezone.now()
     who = name or (user.get_full_name() or user.username if user else "")
     if checkin.state in (CheckIn.ACK,) and resolution != "needs_help":
         return checkin
     prior = set(checkin.notifications.exclude(user=None).values_list("user_id", flat=True))
+    prior_contacts = set(checkin.notifications.exclude(contact=None).values_list("contact_id", flat=True))
     checkin.resolution, checkin.resolved_at, checkin.acknowledged_by = resolution, now, who
     if resolution == "needs_help":
         checkin.state = CheckIn.HELP
@@ -123,7 +122,7 @@ def acknowledge(checkin: CheckIn, resolution="all_ok", user=None, name="", now=N
     else:
         checkin.state, checkin.next_step_at = CheckIn.ACK, None
     checkin.save()
-    _inform(checkin, prior - ({user.pk} if user else set()), who, resolution, now)
+    _inform(checkin, prior - ({user.pk} if user else set()), who, resolution, now, prior_contacts - ({contact.pk} if contact else set()))
     return checkin
 
 
@@ -132,25 +131,35 @@ def acknowledge_by_token(token, resolution="all_ok", now=None):
     n = Notification.objects.select_related("checkin__household").filter(ack_token=token).first()
     if not n:
         return None
-    return acknowledge(n.checkin, resolution, user=n.user, name=n.recipient, now=now)
+    return acknowledge(n.checkin, resolution, user=n.user, name=n.recipient, now=now, contact=n.contact)
 
 
-def _inform(checkin, prior_user_ids, who, resolution, now):
-    """Tell caregivers who were already messaged that someone has it, so nobody double-calls."""
-    from .models import Notification
+def _inform(checkin, prior_user_ids, who, resolution, now, prior_contact_ids=()):
+    """Tell caregivers (email, and Telegram if linked) and emergency contacts already messaged that someone has it."""
+    from .models import EmergencyContact, Notification
     if checkin.kind == CheckIn.SENSOR:
         return
     h = checkin.household
+    tg_sent = set(checkin.notifications.filter(channel="telegram", status="sent").exclude(user=None).values_list("user_id", flat=True))
     text = (f"{who or 'Someone'} says {h.name} needs help." if resolution == "needs_help"
             else f"{who or 'Someone'} confirmed {h.name} is OK. No further action needed.")
-    for m in h.memberships.filter(user_id__in=prior_user_ids).select_related("user"):
-        if m.user.email:
-            n = Notification.objects.create(checkin=checkin, step=99, step_kind="info", recipient=str(m.user),
-                                            destination=notify.channels.mask(m.user.email), channel="email",
-                                            user=m.user, text=text, created_at=now)
-            try:
-                notify.channels.email(m.user.email, f"Update: {h.name}", text)
-                n.status, n.detail = "sent", "follow-up so nobody double-calls"
-            except Exception as e:  # noqa
-                n.status, n.detail = "failed", str(e)[:200]
-            n.save()
+
+    def send(recipient, channel, dest, fn, **who_):
+        n = Notification.objects.create(checkin=checkin, step=99, step_kind="info", recipient=recipient,
+                                        destination=dest, channel=channel, text=text, created_at=now, **who_)
+        try:
+            r = fn()
+            n.status, n.detail = r.status, "follow-up so nobody double-calls" if r.status == "sent" else r.detail
+        except Exception as e:  # noqa
+            n.status, n.detail = "failed", f"{type(e).__name__}"[:200]
+        n.save()
+
+    for m in h.memberships.filter(user_id__in=prior_user_ids).select_related("user", "user__profile"):
+        u = m.user
+        if u.email:
+            send(str(u), "email", notify.channels.mask(u.email), lambda u=u: notify.channels.email(u.email, f"Update: {h.name}", text), user=u)
+        chat = getattr(getattr(u, "profile", None), "telegram_chat_id", None)
+        if chat and m.notify_telegram and u.pk in tg_sent:   # never follow up on a message quiet hours held back
+            send(str(u), "telegram", "Telegram", lambda chat=chat: notify.channels.telegram(chat, text), user=u)
+    for c in EmergencyContact.objects.filter(pk__in=prior_contact_ids, household=h).exclude(telegram_chat_id=None):
+        send(c.name, "telegram", "Telegram", lambda c=c: notify.channels.telegram(c.telegram_chat_id, text), contact=c)

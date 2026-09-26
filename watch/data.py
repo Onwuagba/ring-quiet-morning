@@ -9,7 +9,7 @@ def export_household(h) -> dict:
         "household": {"name": h.name, "ring_location_id": h.ring_location_id, "window_start": str(h.window_start),
                       "check_by": str(h.check_by), "adaptive": h.adaptive, "retention_days": h.retention_days,
                       "away_from": str(h.away_from or ""), "away_until": str(h.away_until or ""),
-                      "person_phone_set": bool(h.person_phone)},
+                      "person_telegram_connected": bool(h.person_telegram_chat_id)},
         "members": [{"username": m.user.username, "email": m.user.email, "role": m.role, "priority": m.priority}
                     for m in h.memberships.select_related("user")],
         "emergency_contacts": [{"name": c.name, "relation": c.relation, "phone": c.phone, "email": c.email}

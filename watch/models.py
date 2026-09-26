@@ -1,3 +1,4 @@
+import secrets
 import uuid
 from datetime import timedelta
 
@@ -18,7 +19,8 @@ class Household(models.Model):
     window_start = models.TimeField(help_text="Morning activity usually starts after this")
     check_by = models.TimeField(help_text="If nothing has happened by this time, check in")
     adaptive = models.BooleanField(default=True, help_text="Learn the usual first-activity time and tune the deadline")
-    person_phone = models.CharField(max_length=40, blank=True, help_text="Their own phone, for the gentle nudge")
+    person_telegram_chat_id = models.BigIntegerField(null=True, blank=True, editable=False,
+                                                     help_text="Their own Telegram chat, for the gentle nudge (never shown)")
     nudge_enabled = models.BooleanField(default=False, help_text="Message them first, before anyone else")
     escalation_minutes = models.PositiveIntegerField(default=20, help_text="Wait this long between escalation steps")
     sensor_silent_hours = models.PositiveIntegerField(default=36, help_text="No events at all for this long = device problem")
@@ -49,6 +51,7 @@ class Profile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
     phone = models.CharField(max_length=40, blank=True, help_text="Include country code, e.g. +2348012345678")
     large_type = models.BooleanField(default=False, help_text="Larger text and higher contrast")
+    telegram_chat_id = models.BigIntegerField(null=True, blank=True, editable=False, help_text="Set by the bot link; never shown")
 
 
 class Membership(models.Model):
@@ -60,8 +63,7 @@ class Membership(models.Model):
     role = models.CharField(max_length=12, choices=ROLES, default=CAREGIVER)
     priority = models.PositiveIntegerField(default=1, help_text="1 = contacted first")
     notify_email = models.BooleanField(default=True)
-    notify_sms = models.BooleanField(default=False)
-    notify_whatsapp = models.BooleanField(default=False)
+    notify_telegram = models.BooleanField(default=True)
     notify_push = models.BooleanField(default=True)
     quiet_start = models.TimeField(null=True, blank=True, help_text="No phone alerts from this time...")
     quiet_end = models.TimeField(null=True, blank=True, help_text="...until this time (unless urgent)")
@@ -84,12 +86,13 @@ class Membership(models.Model):
 
 
 class EmergencyContact(models.Model):
-    """Not a Quiet Morning user: reached last, by SMS/WhatsApp/email, only after earlier steps go unanswered."""
+    """Not a Quiet Morning user: reached last, by Telegram/email, only after earlier steps go unanswered."""
     household = models.ForeignKey(Household, on_delete=models.CASCADE, related_name="emergency_contacts")
     name = models.CharField(max_length=100)
     relation = models.CharField(max_length=60, blank=True)
-    phone = models.CharField(max_length=40, blank=True)
+    phone = models.CharField(max_length=40, blank=True, help_text="For people to call; not used for messaging")
     email = models.EmailField(blank=True)
+    telegram_chat_id = models.BigIntegerField(null=True, blank=True, editable=False)
 
 
 class Invite(models.Model):
@@ -197,10 +200,36 @@ class Notification(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     contact = models.ForeignKey(EmergencyContact, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     text = models.TextField(blank=True)
+    telegram_message_id = models.BigIntegerField(null=True, blank=True, editable=False)
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         ordering = ["created_at", "id"]
+
+
+def _link_token():
+    return secrets.token_urlsafe(24)   # 32 chars of A-Za-z0-9_-, valid as a Telegram /start payload (max 64)
+
+
+class TelegramLink(models.Model):
+    """One-time deep-link token binding a Telegram chat to a caregiver, an emergency contact or the person themselves."""
+    token = models.CharField(max_length=64, unique=True, default=_link_token, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE, related_name="+")
+    contact = models.ForeignKey(EmergencyContact, null=True, blank=True, on_delete=models.CASCADE, related_name="+")
+    household = models.ForeignKey(Household, null=True, blank=True, on_delete=models.CASCADE, related_name="+",
+                                  help_text="Set when the link is for the person being cared for")
+    created_at = models.DateTimeField(default=timezone.now)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    def save(self, *a, **kw):
+        if not self.expires_at:
+            self.expires_at = timezone.now() + timedelta(hours=24)
+        super().save(*a, **kw)
+
+    @property
+    def usable(self):
+        return self.used_at is None and self.expires_at > timezone.now()
 
 
 class PushSubscription(models.Model):

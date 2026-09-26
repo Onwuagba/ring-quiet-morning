@@ -45,12 +45,13 @@ class Base(TestCase):
 
     def setUp(self):
         self.h = Household.objects.create(name="Mama", ring_location_id="loc1", window_start=time(5), check_by=time(9),
-                                          person_phone="+234111", escalation_minutes=20)
-        self.amina = make_user("amina", phone="+234222")
-        self.tunde = make_user("tunde", phone="+234333")
+                                          person_telegram_chat_id=1001, escalation_minutes=20)
+        self.amina = make_user("amina", phone="+234222", telegram_chat_id=1002)
+        self.tunde = make_user("tunde", phone="+234333", telegram_chat_id=1003)
         self.ma = Membership.objects.create(user=self.amina, household=self.h, role="owner", priority=1)
         self.mt = Membership.objects.create(user=self.tunde, household=self.h, role="caregiver", priority=2)
-        self.ec = EmergencyContact.objects.create(household=self.h, name="Aunty", phone="+234444", email="aunty@example.com")
+        self.ec = EmergencyContact.objects.create(household=self.h, name="Aunty", phone="+234444", email="aunty@example.com",
+                                                telegram_chat_id=1004)
 
     def login(self, user=None):
         self.client.login(username=(user or self.amina).username, password=PW)

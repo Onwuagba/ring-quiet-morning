@@ -10,7 +10,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from . import charts, data, escalation, privacy, rules, summary
+from . import charts, data, escalation, privacy, rules, summary, tgbot
 from .access import household_view
 from .forms import (AwayForm, EmergencyContactForm, ExpectedLateForm, InviteForm, MorningForm, PersonForm,
                     PrefsForm, SettingsForm, SignupForm)
@@ -180,7 +180,7 @@ def _timeline(h, now, checkins):
     return sorted(items, key=lambda i: i["at"])
 
 
-Notification.get_channel_label = lambda self: {"sms": "SMS", "whatsapp": "WhatsApp", "push": "push", "email": "email"}.get(self.channel, self.channel)
+Notification.get_channel_label = lambda self: {"telegram": "Telegram", "push": "push", "email": "email"}.get(self.channel, self.channel)
 
 
 @household_view("view")
@@ -275,7 +275,8 @@ def settings_view(request, h, m):
         form.save()
         messages.success(request, "Settings saved.")
         return redirect("settings", hid=h.pk)
-    return render(request, "watch/settings.html", {"h": h, "m": m, "form": form, "guarantees": privacy.GUARANTEES})
+    return render(request, "watch/settings.html", {"h": h, "m": m, "form": form, "tg_ready": bool(settings.TELEGRAM_BOT_USERNAME),
+                                                   "tg_linked": tgbot.is_linked(household=h), "guarantees": privacy.GUARANTEES})
 
 
 @household_view("manage")
@@ -323,7 +324,8 @@ def team(request, h, m):
             Invite.objects.filter(pk=request.POST.get("id"), household=h, accepted_at=None).delete()
             return redirect("team", hid=h.pk)
     return render(request, "watch/team.html", {
-        "h": h, "m": m, "members": h.memberships.select_related("user"), "contacts": h.emergency_contacts.all(),
+        "h": h, "m": m, "members": h.memberships.select_related("user"), "contacts": [(c, tgbot.is_linked(contact=c)) for c in h.emergency_contacts.all()],
+        "tg_ready": bool(settings.TELEGRAM_BOT_USERNAME),
         "invites": [i for i in h.invites.filter(accepted_at=None) if i.usable], "invite": invite, "contact": contact,
         "roles": Membership.ROLES})
 
@@ -339,7 +341,30 @@ def prefs(request, h, m):
         messages.success(request, "Preferences saved.")
         return redirect("prefs", hid=h.pk)
     return render(request, "watch/prefs.html", {"h": h, "m": m, "form": form, "vapid": settings.VAPID_PUBLIC_KEY,
+                                                "tg_ready": bool(settings.TELEGRAM_BOT_USERNAME),
+                                                "tg_linked": tgbot.is_linked(user=request.user),
                                                 "push_count": request.user.push_subscriptions.count()})
+
+
+@household_view("view")
+@require_POST
+def telegram_link(request, h, m):
+    """Issue a one-time t.me deep link. Self for any member; emergency contacts and the person need manage rights."""
+    who = request.POST.get("who", "me")
+    if not settings.TELEGRAM_BOT_USERNAME:
+        messages.error(request, "Telegram is not set up on this server yet (TELEGRAM_BOT_USERNAME).")
+        return redirect("prefs", hid=h.pk)
+    if who == "me":
+        link, label, back = tgbot.new_link(user=request.user), "you", "prefs"
+    elif not m.can_manage:
+        raise Http404
+    elif who == "person":
+        link, label, back = tgbot.new_link(household=h), h.name, "settings"
+    else:
+        c = get_object_or_404(EmergencyContact, pk=request.POST.get("id"), household=h)
+        link, label, back = tgbot.new_link(contact=c), c.name, "team"
+    return render(request, "watch/telegram_link.html", {"h": h, "m": m, "link": tgbot.deep_link(link), "label": label,
+                                                        "back": back})
 
 
 @login_required

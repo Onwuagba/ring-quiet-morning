@@ -7,6 +7,7 @@ from watch import views, webhook
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("webhooks/ring/", webhook.ring_webhook),
+    path("webhooks/telegram/", webhook.telegram_webhook),
     path("healthz/", webhook.healthz, name="healthz"),
     path("", views.home, name="home"),
     path("login/", auth_views.LoginView.as_view(template_name="watch/login.html"), name="login"),
@@ -17,6 +18,7 @@ urlpatterns = [
     path("privacy/", views.privacy_page, name="privacy"),
     path("ack/<uuid:token>/", views.ack, name="ack"),
     path("me/large-type/", views.toggle_large_type, name="large_type"),
+    path("h/<int:hid>/telegram/", views.telegram_link, name="telegram_link"),
     path("push/subscribe/", views.push_subscribe, name="push_subscribe"),
     path("manifest.webmanifest", views.manifest, name="manifest"),
     path("sw.js", views.service_worker, name="sw"),

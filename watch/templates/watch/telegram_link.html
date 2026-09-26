@@ -1,0 +1,5 @@
+{% extends "watch/base.html" %}{% block title %}Connect Telegram - Quiet Morning{% endblock %}{% block nav %}{% include "watch/_hnav.html" %}{% endblock %}
+{% block content %}<h1>Connect Telegram for {{ label }}</h1>
+<div class="card"><p>Open this link on the phone that has Telegram, then press <strong>Start</strong> in the chat with the bot. It works once and expires in 24 hours.</p>
+<p><a class="btn" href="{{ link }}" rel="noopener">Open in Telegram</a></p><p class="muted">Or send this to {{ label }}: <code>{{ link }}</code></p>
+<p><a href="{% url back h.pk %}">Back</a></p></div>{% endblock %}

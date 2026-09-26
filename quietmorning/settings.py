@@ -81,12 +81,10 @@ if os.getenv("EMAIL_HOST"):
     EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
     EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
     EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
-SMS_ENABLED = env_bool("SMS_ENABLED")
-WHATSAPP_ENABLED = env_bool("WHATSAPP_ENABLED")
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
-TWILIO_SMS_FROM = os.getenv("TWILIO_SMS_FROM", "")
-TWILIO_WHATSAPP_FROM = os.getenv("TWILIO_WHATSAPP_FROM", "")
+# Telegram Bot API. Without a token, messages are logged stubs. Never commit the token.
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")          # without @; used for t.me deep links
+TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")      # 1-256 chars of A-Z a-z 0-9 _ - ; empty = webhook rejects all
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "")     # base64url application server key
 VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "")
 VAPID_CLAIM = os.getenv("VAPID_CLAIM", "mailto:admin@example.com")
