@@ -1,0 +1,3 @@
+{% extends "watch/base.html" %}{% block content %}<h1>Your households</h1>
+{% for m in memberships %}<div class="card"><h2><a href="{% url 'dashboard' m.household_id %}">{{ m.household.name }}</a></h2><p class="muted">Your role: {{ m.get_role_display }}</p></div>{% endfor %}
+<a class="btn secondary" href="{% url 'onboarding' 1 %}">Add another person</a>{% endblock %}

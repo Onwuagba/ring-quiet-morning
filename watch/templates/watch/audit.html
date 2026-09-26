@@ -1,0 +1,7 @@
+{% extends "watch/base.html" %}{% block title %}History - Quiet Morning{% endblock %}{% block nav %}{% include "watch/_hnav.html" %}{% endblock %}
+{% block content %}<h1>Check-in history</h1><p class="muted">Every message we attempt is recorded here: who, how, and what happened.</p>
+{% for c in checkins %}<div class="card"><h2>{{ c.date|date:"D j M" }} &middot; {% if c.kind == "sensor" %}Device notice{% else %}Quiet morning{% endif %} <span class="pill">{{ c.get_state_display|default:c.state }}</span></h2>
+<p>{{ c.explanation }}{% if c.acknowledged_by %}<br>Resolved by {{ c.acknowledged_by }}: {{ c.resolution }} at {{ c.resolved_at|time:"H:i" }}{% endif %}</p>
+<table><thead><tr><th>Time</th><th>Who</th><th>How</th><th>Result</th></tr></thead><tbody>
+{% for n in c.notifications.all %}<tr><td>{{ n.created_at|time:"H:i" }}</td><td>{{ n.recipient }}<br><small>{{ n.step_kind }}</small></td><td>{{ n.channel }} <small>{{ n.destination }}</small></td><td>{{ n.status }}{% if n.attempts > 1 %} ({{ n.attempts }} tries){% endif %}<br><small>{{ n.detail }}</small></td></tr>{% endfor %}</tbody></table></div>
+{% empty %}<div class="card empty"><span class="glyph" aria-hidden="true">&#127774;</span>No check-ins yet. That means every morning has looked normal.</div>{% endfor %}{% endblock %}

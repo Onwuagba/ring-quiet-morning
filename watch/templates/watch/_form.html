@@ -1,0 +1,7 @@
+{% if form.non_field_errors %}<ul class="errorlist" role="alert">{% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+{% for f in form %}{% if f.is_hidden %}{{ f }}{% else %}
+{% if f.field.widget.input_type == "checkbox" %}
+<label class="inline">{{ f }}<span>{{ f.label }}{% if f.help_text %}<br><span class="helptext">{{ f.help_text }}</span>{% endif %}</span></label>
+{% else %}<label for="{{ f.id_for_label }}">{{ f.label }}</label>{{ f }}{% if f.help_text %}<div class="helptext">{{ f.help_text }}</div>{% endif %}{% endif %}
+{% if f.errors %}<ul class="errorlist" role="alert">{% for e in f.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+{% endif %}{% endfor %}

@@ -1,12 +1,20 @@
-# Demo video script (about 2 min)
+# Demo video script (about 2:30)
 
-Setup: `python manage.py migrate && python manage.py simulate_demo --reset`, then `runserver` and open the printed `/h/<token>/` dashboard.
+Setup: `python manage.py simulate_demo --reset --scenario quiet`, `runserver`, log in as `amina` on a phone-width window.
+Show the terminal output once for the scenario story, then the UI.
 
-1. (0:00) Hook, voice-over: "Most safety tech watches for emergencies. But the worst mornings are silent ones: nothing happens."
-2. (0:15) Terminal: run `simulate_demo`. Point at step 1: two weeks of door/motion metadata, learned usual morning, adaptive check-in time (earlier than the fixed 09:00).
-3. (0:40) Steps 2-3: five minutes before the deadline, no alert. Deadline passes, one gentle check-in goes out. Show the email/console message: calm wording, not an alarm.
-4. (1:05) Browser: dashboard. Show today's timeline (empty), the "check-in sent" card, usual-morning panel, quiet-window settings.
-5. (1:30) Tap All OK. Card flips to confirmed.
-6. (1:45) Privacy close: "Metadata only. No video, no faces. We alert on absence, never on activity." Mention Ring's E2EE limits honestly (see README) and that the Ring integration is sandbox-pending.
+| Time | On screen | Voice-over |
+|---|---|---|
+| 0:00 | Landing page | "Millions of us worry about a parent living alone. Cameras are invasive. Quiet Morning uses only door and motion metadata from Ring, and never sees video." |
+| 0:15 | Terminal: scenario 1 and 2 output | "It learns their routine per weekday. A normal morning: nobody is bothered. A late morning, or a day Amina marked 'hospital appointment': still nobody bothered." |
+| 0:35 | Dashboard, green hero, "usually 06:35, motion at 06:40" | "Every state says why, in plain words." |
+| 0:50 | Terminal: scenario 3 (offline) | "Three silent days and 4% battery. That is a device problem, not a quiet morning, so we send a device notice, not an alarm." |
+| 1:10 | Dashboard in quiet state: amber hero, confidence pill | "A real quiet morning. 'Usually 07:30 on Saturdays; today nothing by 08:10.' Confidence 76%." |
+| 1:30 | Terminal audit trail | "First a gentle hello to Mama. Then Amina, by email only because her phone is silent while she sleeps. Then Tunde by SMS and WhatsApp." |
+| 1:55 | Tap the ack link in the audit; dashboard turns green | "Tunde confirms with one tap. The chain stops, and Amina is told so nobody double-calls." |
+| 2:10 | History page, then Privacy page, Settings > export/delete | "Every message is logged. The privacy promises are enforced in code and tested. Owners can export or delete everything." |
+| 2:25 | Large-type toggle, install prompt | "Large type for older caregivers, installable on any phone." |
+| 2:30 | Title card | "Quiet Morning. Peace of mind without watching." |
 
-Note: the demo uses simulated events, not a live Ring device. Say so on screen.
+Do not claim: that Ring delivers heartbeat/battery events, that the webhook signature matches Ring's, or that push and
+Twilio were tested live. Say "prototype on simulated Ring events".

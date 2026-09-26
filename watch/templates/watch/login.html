@@ -1,0 +1,4 @@
+{% extends "watch/base.html" %}{% block title %}Log in - Quiet Morning{% endblock %}{% block content %}
+<h1>Log in</h1><div class="card"><form method="post">{% csrf_token %}{% include "watch/_form.html" %}
+<input type="hidden" name="next" value="{{ next }}"><p><button>Log in</button></p></form>
+<p>New here? <a href="{% url 'signup' %}">Create an account</a></p></div>{% endblock %}

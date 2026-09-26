@@ -1,5 +1,7 @@
 from django.contrib import admin
 
-from .models import CheckIn, Event, Household
+from . import models
 
-admin.site.register([Household, Event, CheckIn])
+for m in (models.Household, models.Membership, models.EmergencyContact, models.Invite, models.CheckIn,
+          models.Notification, models.DeviceStatus, models.ExpectedLate):
+    admin.site.register(m)

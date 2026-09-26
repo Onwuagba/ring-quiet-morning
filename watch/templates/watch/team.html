@@ -1,0 +1,13 @@
+{% extends "watch/base.html" %}{% block title %}Team - Quiet Morning{% endblock %}{% block nav %}{% include "watch/_hnav.html" %}{% endblock %}
+{% block content %}<h1>Who looks after {{ h.name }}</h1>
+<div class="card"><h2>Caregivers</h2>{% for mm in members %}<form method="post" class="row" style="align-items:end;margin:8px 0">{% csrf_token %}<input type="hidden" name="id" value="{{ mm.pk }}">
+<div style="flex:2 1 160px"><strong>{{ mm.user.get_full_name|default:mm.user.username }}</strong><br><small>{{ mm.user.email }}</small></div>
+<div style="flex:1 1 140px"><label for="r{{ mm.pk }}">Role</label><select id="r{{ mm.pk }}" name="role">{% for v, l in roles %}<option value="{{ v }}" {% if v == mm.role %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+<div style="flex:0 1 90px"><label for="p{{ mm.pk }}">Order</label><input id="p{{ mm.pk }}" type="number" min="1" name="priority" value="{{ mm.priority }}"></div>
+<button class="secondary" name="action" value="member">Save</button><button class="danger" name="action" value="remove_member">Remove</button></form>{% endfor %}</div>
+<div class="card"><h2>Invite a caregiver</h2><form method="post">{% csrf_token %}<input type="hidden" name="action" value="invite">{% include "watch/_form.html" with form=invite %}<p><button>Send invite</button></p></form>
+{% for i in invites %}<form method="post" class="row">{% csrf_token %}<input type="hidden" name="id" value="{{ i.pk }}"><span>Pending: {{ i.email }} ({{ i.role }})</span><button class="link" name="action" value="revoke_invite">Revoke</button></form>{% endfor %}</div>
+<div class="card"><h2>Emergency contacts</h2><p class="muted">Not app users. Reached last, only if earlier people stay silent.</p>
+{% for c in contacts %}<form method="post" class="row">{% csrf_token %}<input type="hidden" name="id" value="{{ c.pk }}"><span>{{ c.name }} {{ c.relation }} {{ c.phone }} {{ c.email }}</span><button class="link" name="action" value="remove_contact">Remove</button></form>
+{% empty %}<p class="empty">No emergency contact yet.</p>{% endfor %}
+<form method="post">{% csrf_token %}<input type="hidden" name="action" value="contact">{% include "watch/_form.html" with form=contact %}<p><button>Add contact</button></p></form></div>{% endblock %}

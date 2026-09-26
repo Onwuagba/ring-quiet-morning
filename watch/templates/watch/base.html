@@ -1,0 +1,27 @@
+{% load static %}<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{% block title %}Quiet Morning{% endblock %}</title>
+<meta name="theme-color" content="#2f5d62"><meta name="color-scheme" content="light dark">
+<link rel="manifest" href="{% url 'manifest' %}"><link rel="icon" href="{% static 'watch/icon-192.png' %}">
+<link rel="apple-touch-icon" href="{% static 'watch/icon-192.png' %}">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="stylesheet" href="{% static 'watch/app.css' %}">
+</head>
+<body class="{% if large_type %}large{% endif %}">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top"><a class="brand" href="{% url 'home' %}">&#9728; Quiet Morning</a>
+<nav aria-label="Main">
+{% if user.is_authenticated %}
+{% block nav %}{% endblock %}
+<form method="post" action="{% url 'large_type' %}" style="display:inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}">
+<button class="link" aria-pressed="{% if large_type %}true{% else %}false{% endif %}">{% if large_type %}Normal text{% else %}Large text{% endif %}</button></form>
+<form method="post" action="{% url 'logout' %}" style="display:inline">{% csrf_token %}<button class="link">Log out</button></form>
+{% else %}<a href="{% url 'login' %}">Log in</a> <a href="{% url 'privacy' %}">Privacy</a>{% endif %}
+</nav></header>
+<main id="main">
+{% if messages %}<div class="msgs" role="status">{% for m in messages %}<p class="{{ m.tags }}">{{ m }}</p>{% endfor %}</div>{% endif %}
+{% block content %}{% endblock %}
+</main>
+<script src="{% static 'watch/app.js' %}" defer></script>
+</body></html>

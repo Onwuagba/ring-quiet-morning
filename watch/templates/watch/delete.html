@@ -1,0 +1,5 @@
+{% extends "watch/base.html" %}{% block nav %}{% include "watch/_hnav.html" %}{% endblock %}{% block content %}
+<h1>Delete {{ h.name }}</h1><div class="card"><p>This permanently removes every event, check-in, notification record, team link and contact for this household. It cannot be undone.</p>
+<p><a class="btn secondary" href="{% url 'export' h.pk %}">Download a copy first</a></p>
+<form method="post">{% csrf_token %}<label for="confirm">Type <strong>{{ h.name }}</strong> to confirm</label><input id="confirm" name="confirm" type="text" autocomplete="off">
+<p><button class="danger">Delete everything</button></p></form></div>{% endblock %}

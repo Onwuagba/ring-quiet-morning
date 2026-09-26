@@ -1,0 +1,6 @@
+{% extends "watch/base.html" %}{% block content %}
+<h1>Help look after {{ inv.household.name }}</h1>
+<div class="card"><p>You have been invited as <strong>{{ inv.get_role_display }}</strong>. You will only ever see door and motion metadata, never video.</p>
+<form method="post">{% csrf_token %}
+{% if form %}<p class="muted">Create your account to accept. Already have one? <a href="{% url 'login' %}?next={{ request.path }}">Log in first</a>.</p>{% include "watch/_form.html" %}{% endif %}
+<p><button>Accept invitation</button></p></form></div>{% endblock %}

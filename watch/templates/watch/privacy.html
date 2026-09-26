@@ -1,0 +1,7 @@
+{% extends "watch/base.html" %}{% block title %}Privacy - Quiet Morning{% endblock %}{% block content %}
+<h1>Privacy, in plain words</h1>
+<div class="card"><ul>{% for g in guarantees %}<li>{{ g }}</li>{% endfor %}</ul></div>
+<div class="card"><h2>How it is enforced, not just promised</h2>
+<p>Every incoming event passes an allowlist before it is stored. Only these fields survive: <code>{{ allowed|join:", " }}</code>. Values that look like links or are long are dropped too. Fields such as {{ never|join:", " }} are never kept. The same filter also runs when an event is saved, so no code path can store media by accident.</p></div>
+<div class="card"><h2>Consent and control</h2><p>Owners confirm during setup that the person knows and agrees. Owners can export or delete the household from Settings at any time, and choose how long history is kept.</p></div>
+<div class="card"><h2>Honest limits</h2><p>Quiet Morning is a check-in aid, not a medical or emergency service. Silence can have harmless causes, which is why messages are worded as gentle check-ins and show a confidence score. We have not verified what Ring delivers when video end-to-end encryption is on.</p></div>{% endblock %}

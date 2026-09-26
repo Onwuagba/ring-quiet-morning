@@ -1,0 +1,5 @@
+{% extends "watch/base.html" %}{% block title %}Settings - Quiet Morning{% endblock %}{% block nav %}{% include "watch/_hnav.html" %}{% endblock %}
+{% block content %}<h1>Settings for {{ h.name }}</h1>
+<form method="post" class="card">{% csrf_token %}{% include "watch/_form.html" %}<p><button>Save</button></p></form>
+<div class="card"><h2>Your data</h2><ul>{% for g in guarantees %}<li>{{ g }}</li>{% endfor %}</ul>
+<div class="row"><a class="btn secondary" href="{% url 'export' h.pk %}">Download everything (JSON)</a><a class="btn danger" href="{% url 'delete' h.pk %}">Delete this household</a></div></div>{% endblock %}

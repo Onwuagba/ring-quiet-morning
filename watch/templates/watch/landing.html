@@ -1,0 +1,10 @@
+{% extends "watch/base.html" %}{% block content %}
+<section class="hero-land"><h1>Know they're up and about, without watching them.</h1>
+<p style="font-size:1.15em">Quiet Morning learns the usual rhythm of a Ring doorbell home from door and motion <em>metadata only</em>. If a morning goes unexpectedly quiet, it checks in gently with the right person first, then the next, and never sees video.</p>
+<div class="row"><a class="btn" href="{% url 'signup' %}">Create a caregiver account</a><a class="btn secondary" href="{% url 'login' %}">Log in</a></div></section>
+<div class="grid2">
+<div class="card"><h3>Alerts on absence, explained</h3><p>"Usually first activity around 07:20 on Tuesdays; today nothing by 08:50." Every alert says why, with a confidence score.</p></div>
+<div class="card"><h3>Device down is not a quiet morning</h3><p>Low battery, offline devices and days of silence are told apart from a person who has not stirred.</p></div>
+<div class="card"><h3>A chain of people, not one phone</h3><p>A gentle hello to them, then caregiver 1, caregiver 2, then an emergency contact. Everything is logged.</p></div>
+<div class="card"><h3>Metadata only, provably</h3><p>No video, images or audio, enforced in code. <a href="{% url 'privacy' %}">Read the privacy promises</a>.</p></div></div>
+{% endblock %}

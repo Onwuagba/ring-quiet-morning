@@ -1,0 +1,27 @@
+# web + celery worker + celery beat + redis. `cp .env.example .env`, edit, then `docker compose up --build`.
+x-app: &app
+  build: .
+  env_file: .env
+  environment:
+    REDIS_URL: redis://redis:6379/0
+    DB_PATH: /data/db.sqlite3
+  volumes: ["qm-data:/data"]
+  depends_on: [redis]
+
+services:
+  web:
+    <<: *app
+    ports: ["8000:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/healthz/')"]
+      interval: 30s
+  worker:
+    <<: *app
+    command: celery -A quietmorning worker -l info
+  beat:
+    <<: *app
+    command: celery -A quietmorning beat -l info --schedule /data/celerybeat-schedule
+  redis:
+    image: redis:7-alpine
+volumes:
+  qm-data:

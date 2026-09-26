@@ -1,43 +1,83 @@
-<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Quiet Morning - {{ h.name }}</title>
-<style>
-body{font-family:system-ui,sans-serif;max-width:640px;margin:0 auto;padding:16px;background:#faf8f5;color:#222}
-.card{background:#fff;border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 1px 3px #0002}
-button{font-size:1.1rem;padding:12px 20px;border:0;border-radius:8px;cursor:pointer;margin-right:8px}
-.ok{background:#2e7d32;color:#fff}.help{background:#c62828;color:#fff}.plain{background:#333;color:#fff}
-.msg{padding:8px 12px;border-radius:8px;background:#e8f5e9}.error{background:#ffebee}
-li{padding:4px 0}small{color:#666}
-</style></head><body>
+{% extends "watch/base.html" %}{% block title %}{{ h.name }} - Quiet Morning{% endblock %}
+{% block nav %}{% include "watch/_hnav.html" %}{% endblock %}
+{% block content %}
+<div data-status-url="{% url 'status_json' h.pk %}"></div>
 <h1>{{ h.name }}'s morning</h1>
-<p><small>{{ now|date:"l j F, H:i" }}. Only door/motion metadata is used. No video, ever.</small></p>
-{% for m in messages %}<p class="msg {{ m.tags }}" role="status">{{ m }}</p>{% endfor %}
+<p class="muted">{{ now|date:"l j F, H:i" }} &middot; door and motion metadata only, no video, ever. <a href="{% url 'privacy' %}">Why you can trust that</a></p>
 
-<div class="card">
-{% if checkin and checkin.resolution == "all_ok" %}<h2>All OK, confirmed</h2>
-{% elif checkin and checkin.resolution == "needs_help" %}<h2>Marked as needing help</h2>
-{% elif checkin %}<h2>Quiet morning: check-in sent</h2><p>Please call {{ h.name }}, then confirm.</p>
-{% elif events %}<h2>Normal: activity seen today</h2>
-{% else %}<h2>No activity yet</h2><p><small>A check-in goes out at {{ effective|time:"H:i" }} if it stays quiet.</small></p>{% endif %}
-<form method="post">{% csrf_token %}
-<button class="ok" name="action" value="all_ok">All OK</button>
-<button class="help" name="action" value="needs_help">Need help</button></form>
-</div>
+{% if checkin and checkin.state == "help_requested" %}
+<section class="hero s-help" aria-live="polite"><div class="big"><span class="glyph" aria-hidden="true">!</span>Help requested</div>
+<p>{{ checkin.acknowledged_by }} asked for help. Everyone on the list has been alerted. Call {{ h.name }} or a neighbour now.</p></section>
+{% elif checkin and checkin.state == "open" %}
+<section class="hero s-quiet" aria-live="polite"><div class="big"><span class="glyph" aria-hidden="true">&#9203;</span>Quiet morning: check-in in progress</div>
+<p>{{ checkin.explanation }}</p>
+<p><span class="pill">Confidence {{ checkin.confidence }}% ({% if checkin.confidence >= 75 %}high{% elif checkin.confidence >= 50 %}medium{% else %}low{% endif %})</span>
+{% if checkin.next_step_at %} Next person is contacted at {{ checkin.next_step_at|time:"H:i" }} unless someone confirms.{% endif %}</p></section>
+{% elif checkin and checkin.state == "exhausted" %}
+<section class="hero s-help" aria-live="polite"><div class="big"><span class="glyph" aria-hidden="true">!</span>Nobody has confirmed yet</div>
+<p>Everyone on the chain has been contacted. Please call {{ h.name }} now and, if you cannot reach them, ask a neighbour or your local emergency service to check on them.</p></section>
+{% elif checkin and checkin.state == "acknowledged" %}
+<section class="hero s-ok"><div class="big"><span class="glyph" aria-hidden="true">&#10003;</span>Confirmed OK{% if checkin.acknowledged_by %} by {{ checkin.acknowledged_by }}{% endif %}</div><p>{{ checkin.explanation }}</p></section>
+{% else %}
+<section class="hero s-{{ a.state }}" aria-live="polite"><div class="big"><span class="glyph" aria-hidden="true">{% if a.state == "ok" %}&#10003;{% elif a.state == "waiting" %}&#9728;{% elif a.state == "sensor_issue" %}&#128268;{% elif a.state == "away" %}&#9992;{% elif a.state == "snoozed" %}&#128340;{% else %}&#9203;{% endif %}</span>{{ a.headline }}</div>
+<p>{{ a.explanation }}</p>
+{% if a.confidence %}<p><span class="pill">Confidence {{ a.confidence }}% ({{ a.confidence_label|lower }}) that {{ a.confidence_kind }}</span></p>{% endif %}
+{% if a.expected_late_note %}<p><strong>{{ a.expected_late_note }}</strong></p>{% endif %}</section>
+{% endif %}
 
-<div class="card"><h3>Today's timeline</h3>
-<ul>{% for e in events %}<li>{{ e.at|time:"H:i" }} - {{ e.kind }}{% if e.device %} <small>({{ e.device }})</small>{% endif %}</li>
-{% empty %}<li><small>Nothing yet today.</small></li>{% endfor %}</ul></div>
+{% if checkin and checkin.state != "acknowledged" and m.can_act %}
+<form method="post" class="row">{% csrf_token %}<button class="btn" name="action" value="all_ok">I've checked: all OK</button>
+<button class="btn danger" name="action" value="needs_help">They need help</button></form>
+{% elif not checkin and m.can_act %}
+<details class="card"><summary>Worried anyway?</summary><form method="post">{% csrf_token %}<p class="muted">This alerts everyone on the chain right now.</p><button class="danger" name="action" value="needs_help">Alert the team</button></form></details>
+{% endif %}
 
-<div class="card"><h3>Usual morning</h3>
-{% if baseline %}<p>Over {{ baseline.days }} mornings, first activity is usually around
-{{ baseline.median_time|time:"H:i" }} and rarely later than {{ baseline.p90_time|time:"H:i" }}.</p>
-{% else %}<p><small>Still learning; needs about 5 mornings of data. Using your fixed time.</small></p>{% endif %}
-<p>Check-in time in use: <strong>{{ effective|time:"H:i" }}</strong></p></div>
+{% if sensor_checkin %}<div class="card s-sensor_issue" style="border-color:currentColor"><h3>Device notice sent</h3><p style="color:var(--ink)">{{ sensor_checkin.explanation }}</p>
+{% if sensor_checkin.state == "open" or sensor_checkin.state == "exhausted" %}{% if m.can_act %}<form method="post">{% csrf_token %}<input type="hidden" name="kind" value="sensor"><button class="secondary" name="action" value="all_ok">I've looked at the device</button></form>{% endif %}{% endif %}</div>{% endif %}
 
-<div class="card"><h3>Quiet window settings</h3>
-<form method="post">{% csrf_token %}<input type="hidden" name="action" value="settings">
-<p><label>Morning starts {{ form.window_start }}</label></p>
-<p><label>Check in by {{ form.check_by }}</label></p>
-<p><label>{{ form.adaptive }} Adapt to their usual routine</label></p>
-<button class="plain">Save</button></form></div>
-</body></html>
+{% if not has_events %}
+<div class="card empty"><span class="glyph" aria-hidden="true">&#128276;</span><h2>Waiting for the first Ring event</h2>
+<p>Connect Ring and door or motion events will appear here. Point the webhook at:</p><p><code>{{ webhook_url }}</code></p>
+<p class="muted">Ring's real signing scheme is not verified yet (see README). To see the product working now, run <code>python manage.py simulate_demo</code>.</p></div>
+{% else %}
+<div class="card"><h2>Today at a glance</h2>
+<div class="strip" role="img" aria-label="Today's timeline: {% for k in strip.marks %}{{ k.label }}{% if not forloop.last %}, {% endif %}{% endfor %}">
+<div class="axis"></div>
+{% for k in strip.marks %}{% if k.kind == "event" or k.kind == "now" %}<span class="dot {{ k.kind }}" style="left:{{ k.pct|floatformat:1 }}%"></span>{% else %}<span class="bar {{ k.kind }}" style="left:{{ k.pct|floatformat:1 }}%"></span>{% endif %}
+<span class="mark {% if k.kind == 'event' or k.kind == 'usual' %}lbl-top{% else %}lbl-bot{% endif %}" style="left:{{ k.pct|floatformat:1 }}%">{{ k.label }}</span>{% endfor %}
+{% for t in strip.ticks %}<span class="tick" style="left:{{ t.pct|floatformat:1 }}%;top:52px">{{ t.label }}</span>{% endfor %}</div>
+<p class="legend"><span>&#9679; activity</span><span>| usual time</span><span>| check-in time</span></p></div>
+{% endif %}
+
+<div class="card"><h2>Timeline</h2>
+{% if timeline %}<ol class="tl">{% for i in timeline %}<li class="{{ i.cls }}"><time>{{ i.at|time:"H:i" }}</time>{{ i.text }}</li>{% endfor %}</ol>
+{% else %}<div class="empty"><span class="glyph" aria-hidden="true">&#127749;</span>Nothing yet today. A quiet start is often normal; we only speak up past their usual time.</div>{% endif %}</div>
+
+<div class="card"><h2>Last two weeks</h2>
+<div class="ribbon" role="list">{% for c in ribbon %}<div class="cell {{ c.state }}" role="listitem" title="{{ c.date|date:'D j M' }}: {{ c.label }}"><span>{{ c.weekday }}</span><span>{{ c.label }}</span></div>{% endfor %}</div>
+<p class="legend"><span>Green: first activity time</span><span>Amber: quiet morning</span><span>Purple: device issue</span><span>Grey: no data</span></p>
+{% if drift.flag %}<div class="hero s-quiet" style="margin:10px 0"><div class="big">Gentle early warning</div><p>{{ drift.message }}</p></div>{% endif %}
+{% if spark %}<h3>Weekly first activity</h3>{{ spark }}{% endif %}
+{% if a.baseline %}<p class="muted">Based on {{ a.baseline.days }} {% if a.baseline.scope == "weekday" %}{{ a.baseline.weekday_name }}{% else %}mornings{% endif %}{% if a.baseline.daylight_shift %}; shifted {{ a.baseline.daylight_shift }} min for sunrise{% endif %}. Usual first activity {{ a.baseline.median_time|time:"H:i" }}, rarely after {{ a.baseline.p90_time|time:"H:i" }}.</p>
+{% else %}<p class="muted">Still learning their routine (needs about 5 mornings). The fixed check-in time applies until then.</p>{% endif %}</div>
+
+<div class="card"><h2>Device health</h2>
+<p><span class="pill">{% if a.health.status == "healthy" %}Healthy{% elif a.health.status == "no_data" %}No data yet{% elif a.health.status == "battery_low" %}Low battery{% elif a.health.status == "degraded" %}Partly offline{% else %}Offline{% endif %}</span>
+{% if a.health.last_seen %} Last seen {{ a.health.last_seen|timesince }} ago.{% endif %}</p>
+{% for i in a.health.issues %}<p>&bull; {{ i }}</p>{% endfor %}
+{% for d in a.health.devices %}<p class="muted">{{ d.device }}: {% if d.online %}online{% else %}offline{% endif %}{% if d.battery is not None %}, battery {{ d.battery }}%{% endif %}</p>{% endfor %}</div>
+
+<div class="card"><h2>Who gets told, in order</h2>
+<p class="chain">{% for kind, label in chain %}<span class="pill">{{ forloop.counter }}. {{ label }}</span>{% if not forloop.last %}<span class="arrow" aria-hidden="true">&rarr;</span>{% endif %}{% empty %}<span class="muted">No one yet. Add people in Team.</span>{% endfor %}</p>
+<p class="muted">Then wait {{ h.escalation_minutes }} min between steps. Anyone confirming stops the chain.</p></div>
+
+{% if m.can_act %}
+<div class="card"><h2>Plans change</h2><div class="grid2">
+<div><h3>Expect them late today</h3>{% if a.expected_late_note %}<p>{{ a.expected_late_note }}</p><form method="post">{% csrf_token %}<button class="secondary" name="action" value="clear_expected_late">Clear</button></form>
+{% else %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="expected_late">{% include "watch/_form.html" with form=late_form %}<p><button class="secondary">Save</button></p></form>{% endif %}</div>
+<div><h3>Snooze alerts</h3>{% if h.snooze_until %}<p>Snoozed until {{ h.snooze_until|time:"H:i" }}.</p><form method="post">{% csrf_token %}<input type="hidden" name="minutes" value="0"><button class="secondary" name="action" value="snooze">Cancel snooze</button></form>
+{% else %}<form method="post" class="row">{% csrf_token %}<input type="hidden" name="action" value="snooze">{% for mins in snooze_options %}<button class="secondary" name="minutes" value="{{ mins }}">{{ mins }} min</button>{% endfor %}</form>{% endif %}
+<h3 style="margin-top:14px">Away or on holiday</h3>{% if h.away_from %}<p>Away mode is on{% if h.away_until %} until {{ h.away_until|date:"j M" }}{% endif %}.</p><form method="post">{% csrf_token %}<button class="secondary" name="action" value="away_off">They are back</button></form>
+{% else %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="away_on">{% include "watch/_form.html" with form=away_form %}<p><button class="secondary">Pause checks</button></p></form>{% endif %}</div></div></div>
+{% endif %}
+{% endblock %}

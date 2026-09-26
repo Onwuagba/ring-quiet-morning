@@ -1,0 +1,6 @@
+{% extends "watch/base.html" %}{% block title %}My alerts - Quiet Morning{% endblock %}{% block nav %}{% include "watch/_hnav.html" %}{% endblock %}
+{% block content %}<h1>How should we reach you?</h1><p class="muted">For {{ h.name }}. Your role: {{ m.get_role_display }}{% if m.role != "viewer" %}, contacted #{{ m.priority }}{% endif %}.</p>
+<form method="post" class="card">{% csrf_token %}{% include "watch/_form.html" %}<p><button>Save</button></p>
+<p class="muted">Quiet hours hold back phone alerts until the situation becomes urgent (third step onward, or someone asks for help). Email is still delivered silently.</p></form>
+<div class="card"><h2>Push notifications on this device</h2><p class="muted">Needs HTTPS (or localhost). On iPhone, first add this app to the Home Screen. You have {{ push_count }} device(s) registered.</p>
+<button class="secondary" id="enable-push" data-vapid="{{ vapid }}" data-url="{% url 'push_subscribe' %}" data-csrf="{{ csrf_token }}" type="button">Turn on push here</button><p id="push-status" role="status"></p></div>{% endblock %}

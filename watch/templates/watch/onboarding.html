@@ -1,0 +1,14 @@
+{% extends "watch/base.html" %}{% block title %}Set up - Quiet Morning{% endblock %}{% block content %}
+<ol class="steps" aria-label="Setup progress">{% for n, label in steps %}<li class="{% if n == step %}on{% elif n < step %}done{% endif %}"{% if n == step %} aria-current="step"{% endif %}>{{ n }}. {{ label }}</li>{% endfor %}</ol>
+<form method="post" class="card">{% csrf_token %}
+{% if step == 1 %}<h1>Who are you looking out for?</h1><p class="muted">Only their first name is needed. Ring's location id can be added now or later.</p>{% include "watch/_form.html" %}
+{% elif step == 2 %}<h1>What does their morning look like?</h1><p class="muted">These are starting points. After about five mornings we learn their real routine, per weekday.</p>{% include "watch/_form.html" %}
+{% elif step == 3 %}<h1>Who should we tell?</h1>
+<h2>You</h2>{% with form=prefs %}{% include "watch/_form.html" %}{% endwith %}
+<h2>Emergency contact (optional)</h2><p class="muted">Contacted last, only if earlier people have not answered.{% for c in contacts %} Added: {{ c.name }}.{% endfor %}</p>{% with form=contact %}{% include "watch/_form.html" %}{% endwith %}
+<h2>Invite another caregiver (optional)</h2>{% with form=invite %}{% include "watch/_form.html" %}{% endwith %}
+{% else %}<h1>Trust and privacy</h1><ul>{% for g in guarantees %}<li>{{ g }}</li>{% endfor %}</ul>
+<label class="inline"><input type="checkbox" name="consent" value="1"><span>{{ h.name }} knows about Quiet Morning and is happy for it to notice door and motion activity.</span></label>
+{% endif %}
+<div class="row" style="margin-top:16px">{% if step > 1 %}<a class="btn secondary" href="{% url 'onboarding' step|add:'-1' %}">Back</a>{% endif %}<button>{% if step == 4 %}Finish{% else %}Next{% endif %}</button></div></form>
+{% endblock %}

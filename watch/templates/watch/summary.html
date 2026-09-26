@@ -1,0 +1,2 @@
+{% extends "watch/base.html" %}{% block title %}Week - Quiet Morning{% endblock %}{% block nav %}{% include "watch/_hnav.html" %}{% endblock %}
+{% block content %}<h1>Your week with {{ h.name }}</h1><p class="muted">This is what the Monday email says.</p><div class="card"><pre style="white-space:pre-wrap;font:inherit">{{ text }}</pre></div>{% endblock %}

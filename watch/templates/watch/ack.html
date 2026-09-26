@@ -1,0 +1,8 @@
+{% extends "watch/base.html" %}{% block title %}Confirm - Quiet Morning{% endblock %}{% block content %}
+<h1>{{ h.name }}</h1>
+{% if c.state == "acknowledged" %}<div class="hero s-ok"><div class="big"><span class="glyph" aria-hidden="true">&#10003;</span>Confirmed{% if c.acknowledged_by %} by {{ c.acknowledged_by }}{% endif %}</div><p>Thank you. Everyone else has been told, so nobody needs to double-check.</p></div>
+{% elif c.state == "help_requested" %}<div class="hero s-help"><div class="big"><span class="glyph" aria-hidden="true">!</span>Help requested</div><p>Everyone on the list has been alerted. Please call {{ h.name }} or a neighbour now.</p></div>
+{% else %}<div class="hero s-quiet"><div class="big">{% if n.step_kind == "nudge" %}Are you OK?{% else %}Quiet morning check-in{% endif %}</div><p>{{ c.explanation }}</p></div>
+<form method="post" class="row">{% csrf_token %}<button class="btn" name="action" value="all_ok">{% if n.step_kind == "nudge" %}I'm fine{% else %}All OK{% endif %}</button>
+<button class="btn danger" name="action" value="needs_help">{% if n.step_kind == "nudge" %}I need help{% else %}They need help{% endif %}</button></form>{% endif %}
+<p class="muted">This is a gentle check-in based on door and motion metadata, not an emergency service. If you think someone is in danger, call your local emergency number.</p>{% endblock %}

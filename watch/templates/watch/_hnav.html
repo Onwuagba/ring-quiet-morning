@@ -1,0 +1,5 @@
+<a href="{% url 'dashboard' h.pk %}">Today</a>
+<a href="{% url 'audit' h.pk %}">History</a>
+<a href="{% url 'summary' h.pk %}">Week</a>
+{% if m.can_manage %}<a href="{% url 'team' h.pk %}">Team</a><a href="{% url 'settings' h.pk %}">Settings</a>{% endif %}
+<a href="{% url 'prefs' h.pk %}">My alerts</a>
