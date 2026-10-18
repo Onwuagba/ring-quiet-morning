@@ -95,10 +95,14 @@ manifest/service-worker responses, push subscription endpoint. Also verified by 
 runs web + worker + beat + redis, `/healthz/?deep=1` reports the broker, and the worker executes `tick`.
 
 **Not verified (needs real accounts, devices or Ring access):**
-- **Ring webhook signature scheme is a placeholder (`watch/webhook.py`, marked TODO-verify).** So are the payload
-  field names (`event_type`, `device_id`, `location_id`, `created_at`, `event_id`). We do not know that Ring sends
-  heartbeat, battery or offline events at all; the sensor-health logic is written against our own generic schema. Do
-  not expose the webhook to real traffic until this is replaced.
+- **Ring integration is built from the Ring developer docs but was not run against Ring.** The webhook receiver
+  follows the documented format (`X-Signature: sha256=<hex HMAC-SHA256 of the raw body>`, the `meta`/`data` envelope,
+  events `motion_detected`, `button_press`, `device_online`, `device_offline`, matched on `meta.account_id`; see
+  `watch/ringapi.py`). Not yet confirmed against a real Ring account: the exact signed bytes with live traffic, the
+  Ring sandbox host, and OAuth account linking (a token-refresh helper exists, the consent flow does not). Ring sends no
+  battery webhook, so battery comes from polling `GET /v1/devices/{id}/status` (`poll_ring_status`, needs
+  `RING_ACCESS_TOKEN`). Run `RING_SIMULATOR=1 python manage.py runserver` and open `/simulator/` to drive the receiver
+  with signed Ring-format events and a simulated clock.
 - Whether motion/door metadata reaches third parties when Ring video E2EE is on.
 - **Telegram against the live Bot API.** No bot token was available: HTTP is unit-tested against mocks and a fake
   transport, and the request shapes follow the Bot API docs as we understood them (the doc fetch tool truncated the page;

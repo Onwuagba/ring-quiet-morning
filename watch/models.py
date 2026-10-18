@@ -9,7 +9,7 @@ from django.utils import timezone
 from . import privacy
 
 # Event kinds that prove the device is alive but say nothing about the person.
-HEALTH_KINDS = {"device_status", "heartbeat", "battery", "offline"}
+HEALTH_KINDS = {"device_status", "heartbeat", "battery", "offline", "doorbell_press"}   # signals that are not the resident moving about
 
 
 class Household(models.Model):

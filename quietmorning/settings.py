@@ -82,8 +82,11 @@ if not DEBUG:
 CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 # --- Ring ---
-RING_WEBHOOK_SECRET = os.getenv("RING_WEBHOOK_SECRET", "dev-secret")
-# Reject events whose created_at is older than this (0 disables replay protection).
+RING_WEBHOOK_SECRET = os.getenv("RING_WEBHOOK_SECRET", "dev-secret")   # the HMAC signing key from the Ring developer portal
+RING_ACCESS_TOKEN = os.getenv("RING_ACCESS_TOKEN", "")                 # OAuth access token for status polling (optional)
+RING_API_BASE = os.getenv("RING_API_BASE", "https://api.amazonvision.com")   # point at the Ring sandbox if it uses another host
+RING_SIMULATOR = os.getenv("RING_SIMULATOR", "") == "1"                # serve /simulator/ (signed fake Ring events), demos only
+# Reject events whose meta.time (when Ring sent the webhook) is older than this (0 disables replay protection).
 RING_REPLAY_WINDOW_SECONDS = int(os.getenv("RING_REPLAY_WINDOW_SECONDS", "900"))
 
 # --- Notifications ---

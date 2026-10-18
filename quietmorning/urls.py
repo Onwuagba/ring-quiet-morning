@@ -1,8 +1,9 @@
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
+from django.conf import settings
 from django.urls import path
 
-from watch import views, webhook
+from watch import simulator, views, webhook
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -32,3 +33,14 @@ urlpatterns = [
     path("h/<int:hid>/export/", views.export, name="export"),
     path("h/<int:hid>/delete/", views.delete, name="delete"),
 ]
+
+if settings.RING_SIMULATOR:   # demo tool: signed fake Ring events, a simulated clock and a phone view
+    urlpatterns += [
+        path("simulator/", simulator.page),
+        path("simulator/state", simulator.state),
+        path("simulator/reset", simulator.reset),
+        path("simulator/event", simulator.send_event),
+        path("simulator/clock", simulator.set_clock),
+        path("simulator/check", simulator.run_check),
+        path("simulator/press", simulator.press),
+    ]

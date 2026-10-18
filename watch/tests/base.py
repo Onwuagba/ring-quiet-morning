@@ -24,7 +24,7 @@ def at(h, m=0, days_ago=0):
 
 
 def sign(body: bytes) -> str:
-    return hmac.new(settings.RING_WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
+    return "sha256=" + hmac.new(settings.RING_WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
 
 
 def seed_history(h, first=(6, 30), days=8, heartbeat=True):

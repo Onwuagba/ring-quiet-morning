@@ -18,6 +18,7 @@ from django.utils import timezone
 from watch import escalation, rules, telegram as tg, tgbot
 from watch.models import (CheckIn, DeviceStatus, EmergencyContact, Event, ExpectedLate, Household, Membership,
                           Notification, Profile)
+from watch.simulator import DEMO_ACCOUNT
 from watch.tasks import tick
 
 PASSWORD = "demo-pass-12345"
@@ -49,7 +50,7 @@ class Command(BaseCommand):
     def handle(self, *a, **o):
         User = get_user_model()
         if o["reset"]:
-            Household.objects.filter(ring_location_id="demo-loc").delete()
+            Household.objects.filter(ring_location_id__in=["demo-loc", DEMO_ACCOUNT]).delete()
             User.objects.filter(username__in=["amina", "tunde"]).delete()
         settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"   # keep the demo output readable
         logging.getLogger("watch").setLevel(logging.ERROR)
@@ -88,7 +89,7 @@ class Command(BaseCommand):
 
     def setup_household(self, User):
         h, created = Household.objects.get_or_create(
-            ring_location_id="demo-loc",
+            ring_location_id=DEMO_ACCOUNT,
             defaults=dict(name="Mama Ngozi", window_start=time(5), check_by=time(9), person_telegram_chat_id=DEMO_CHATS["mama"],
                           nudge_enabled=True, escalation_minutes=20, consent_at=timezone.now(),
                           latitude=6.52, longitude=3.38, daylight_aware=True))

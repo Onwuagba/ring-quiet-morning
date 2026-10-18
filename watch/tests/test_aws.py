@@ -281,7 +281,7 @@ class QueueWorkerTests(Base):
 
     def test_http_view_still_enforces_replay_window(self):
         body, sig = self.event()
-        r = self.client.post("/webhooks/ring/", body, content_type="application/json", HTTP_X_RING_SIGNATURE=sig)
+        r = self.client.post("/webhooks/ring/", body, content_type="application/json", HTTP_X_SIGNATURE=sig)
         self.assertEqual(r.status_code, 400)
 
     def test_scheduler_messages_run_jobs(self):
@@ -331,10 +331,10 @@ class IngestLambdaTests(TestCase):
         import hmac
         raw = b'{"location_id": "x"}'
         sig = hmac.new(b"s3cret", raw, hashlib.sha256).hexdigest()
-        ev = {"headers": {"X-Ring-Signature": sig}, "body": base64.b64encode(raw).decode(), "isBase64Encoded": True}
+        ev = {"headers": {"X-Signature": sig}, "body": base64.b64encode(raw).decode(), "isBase64Encoded": True}
         with mock.patch.dict(os.environ, {"QUEUE_URL": "https://q", "SECRET_ARN": "arn"}):
             self.assertEqual(m.handler(ev, None, sqs=SQS(), sm=SM())["statusCode"], 204)
-            self.assertEqual(m.handler(dict(ev, headers={"x-ring-signature": "bad"}), None, sqs=SQS(), sm=SM())["statusCode"], 403)
+            self.assertEqual(m.handler(dict(ev, headers={"x-signature": "bad"}), None, sqs=SQS(), sm=SM())["statusCode"], 403)
             self.assertEqual(m.handler({"headers": {}, "body": "x" * 70000}, None, sqs=SQS(), sm=SM())["statusCode"], 413)
         self.assertEqual(len(sent), 1)
         self.assertEqual(json.loads(sent[0]["MessageBody"])["type"], "ring_event")

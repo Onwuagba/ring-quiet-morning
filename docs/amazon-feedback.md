@@ -3,8 +3,9 @@
 Split into **observed while building** (facts I hit, with where) and **live experience** (placeholders: fill in after running against real AWS/Ring; nothing below "live" has been done).
 
 ## A. Ring (unverified, no Ring access during the build)
-- Webhook signing: could not confirm header/algorithm; our verifier is a labelled placeholder (`watch/webhook.py`, `infra/lambda_ingest.py`). A documented HMAC over body + signed timestamp would make replay protection exact.
-- Stable event ids in every payload (idempotent handling; we hash the body today).
+- Webhook signing: documented as `X-Signature: sha256=<hex>` over the raw body (`watch/ringapi.py`). No timestamp header is documented, so replay protection has to rely on `meta.time`; a signed timestamp would make it exact. The webhook envelope carries `meta.account_id` but no location id.
+- Docs: the notifications payload examples sit deep in a very long single-page reference; the sensor notes (no battery webhook, `device_offline` lags real connectivity loss) were the most useful finding for an absence-based product.
+- Stable event ids: `data.id` is documented, which we use for idempotent handling.
 - Device health (heartbeat, last-seen, battery, offline): the biggest lever against false alarms for any absence-based product.
 - Metadata under video E2EE: which motion/door events reach third parties? A "presence metadata only, never media" scope would suit caregiving apps.
 - Consent for the monitored person (not only the account owner) and a way for them to see who has access.

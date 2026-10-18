@@ -9,18 +9,19 @@ from django.utils import timezone
 
 from watch import privacy, summary, tasks
 from watch.models import CheckIn, DeviceStatus, Event, Household
+from watch.simulator import DEMO_ACCOUNT
 
 from .base import Base, at, seed_history, sign, today
 
 
 def post(client, payload, **kw):
     body = json.dumps(payload).encode() if not isinstance(payload, bytes) else payload
-    return client.post("/webhooks/ring/", body, content_type="application/json", HTTP_X_RING_SIGNATURE=kw.get("sig", sign(body)))
+    return client.post("/webhooks/ring/", body, content_type="application/json", HTTP_X_SIGNATURE=kw.get("sig", sign(body)))
 
 
 class WebhookTests(Base):
     def test_bad_signature_rejected(self):
-        r = self.client.post("/webhooks/ring/", b"{}", content_type="application/json", HTTP_X_RING_SIGNATURE="nope")
+        r = self.client.post("/webhooks/ring/", b"{}", content_type="application/json", HTTP_X_SIGNATURE="nope")
         self.assertEqual(r.status_code, 403)
 
     def test_stores_only_allowlisted_metadata(self):
@@ -29,7 +30,7 @@ class WebhookTests(Base):
                                "nested": {"stream": "rtsp://x"}, "note": "hello", "event_id": "e1"})
         self.assertEqual(r.status_code, 204)
         raw = Event.objects.get().raw
-        self.assertEqual(set(raw), {"location_id", "event_type", "device_id", "event_id"})
+        self.assertEqual(set(raw), {"event_type", "device_id", "event_id"})
 
     def test_duplicate_delivery_idempotent(self):
         p = {"location_id": "loc1", "event_type": "motion", "event_id": "same"}
@@ -151,7 +152,7 @@ class DemoTests(TestCase):
         text = out.getvalue()
         for s in ("normal day", "late morning", "doorbell went offline", "real quiet morning"):
             self.assertIn(s, text)
-        h = Household.objects.get(ring_location_id="demo-loc")
+        h = Household.objects.get(ring_location_id=DEMO_ACCOUNT)
         self.assertEqual(h.checkins.get(kind="quiet").state, "acknowledged")
         self.assertEqual(h.checkins.filter(kind="sensor").count(), 0)   # reset by the last seed
 
@@ -159,6 +160,100 @@ class DemoTests(TestCase):
     def test_offline_scenario_alone_sends_device_notice_not_chain(self):
         from io import StringIO
         call_command("simulate_demo", "--reset", "--scenario", "offline", stdout=StringIO())
-        h = Household.objects.get(ring_location_id="demo-loc")
+        h = Household.objects.get(ring_location_id=DEMO_ACCOUNT)
         self.assertEqual(h.checkins.get().kind, "sensor")
         self.assertFalse(h.checkins.filter(kind="quiet").exists())
+
+
+class RingEnvelopeTests(Base):
+    """Ring's documented webhook format: X-Signature: sha256=<hex>, meta/data envelope, matched on meta.account_id."""
+
+    def setUp(self):
+        super().setUp()
+        Household.objects.filter(pk=self.h.pk).update(ring_location_id="ava1.ring.account.TEST")
+
+    def send(self, etype, device="kitchen-motion", **kw):
+        from watch import ringapi
+        body = json.dumps(ringapi.build_event("ava1.ring.account.TEST", etype, device, **kw)).encode()
+        return body, self.client.post("/webhooks/ring/", body, content_type="application/json", HTTP_X_SIGNATURE=sign(body))
+
+    def test_motion_event_is_stored_with_ring_timestamp(self):
+        when = timezone.now() - timedelta(minutes=30)
+        _, r = self.send("motion_detected", at=when, sub_type="human")
+        self.assertEqual(r.status_code, 204)
+        e = Event.objects.get()
+        self.assertEqual((e.kind, e.device), ("motion", "kitchen-motion"))
+        self.assertAlmostEqual(e.at.timestamp(), when.timestamp(), delta=1)
+        self.assertEqual(e.raw["sub_type"], "human")
+        self.assertTrue(e.external_id.startswith("kitchen-motion_motion_detected_"))
+
+    def test_doorbell_press_is_not_resident_activity(self):
+        self.send("button_press", device="doorbell")
+        self.assertEqual(Event.objects.get().kind, "doorbell_press")
+        self.assertTrue(Event.objects.get().is_health)
+
+    def test_online_offline_update_device_status(self):
+        self.send("device_online", device="doorbell")
+        self.assertTrue(DeviceStatus.objects.get(device="doorbell").online)
+        self.send("device_offline", device="doorbell")
+        self.assertFalse(DeviceStatus.objects.get(device="doorbell").online)
+
+    def test_bare_hex_and_wrong_signatures(self):
+        from watch import ringapi
+        body = json.dumps(ringapi.build_event("ava1.ring.account.TEST", "motion_detected", "k")).encode()
+        r = self.client.post("/webhooks/ring/", body, content_type="application/json", HTTP_X_SIGNATURE=sign(body)[7:])
+        self.assertEqual(r.status_code, 204)               # bare hex digest tolerated
+        r = self.client.post("/webhooks/ring/", body + b" ", content_type="application/json", HTTP_X_SIGNATURE=sign(body))
+        self.assertEqual(r.status_code, 403)               # signature covers the exact raw bytes
+
+    def test_unknown_account_and_stale_meta_time(self):
+        from watch import ringapi
+        body = json.dumps(ringapi.build_event("ava1.ring.account.OTHER", "motion_detected", "k")).encode()
+        self.assertEqual(self.client.post("/webhooks/ring/", body, content_type="application/json", HTTP_X_SIGNATURE=sign(body)).status_code, 400)
+        old = timezone.now() - timedelta(hours=3)
+        _, r = self.send("motion_detected", now=old)
+        self.assertEqual(r.status_code, 400)
+
+    def test_duplicate_delivery_is_idempotent(self):
+        from watch import ringapi
+        ev = ringapi.build_event("ava1.ring.account.TEST", "motion_detected", "k", at=timezone.now())
+        body = json.dumps(ev).encode()
+        for want in (204, 204):
+            self.assertEqual(self.client.post("/webhooks/ring/", body, content_type="application/json", HTTP_X_SIGNATURE=sign(body)).status_code, want)
+        self.assertEqual(Event.objects.count(), 1)
+
+    def test_parse_handles_nanosecond_meta_time_and_battery_status(self):
+        from watch import ringapi
+        d = ringapi.parse_time("2026-02-13T13:39:57.200155525Z")
+        self.assertEqual((d.year, d.second, d.microsecond), (2026, 57, 200155))
+        self.assertEqual(ringapi.RingClient.battery_and_online({"online": True, "battery_status": {"percentage": 7}}), (7, True))
+        self.assertEqual(ringapi.RingClient.battery_and_online({"online": True, "battery_status": {"percentage": 255}}), (None, True))
+
+
+class StatusPollTests(Base):
+    def test_poll_updates_battery_and_online_from_status_endpoint(self):
+        DeviceStatus.objects.create(household=self.h, device="doorbell", last_seen=timezone.now(), battery=90, online=True)
+        DeviceStatus.objects.create(household=self.h, device="chime", last_seen=timezone.now(), battery=50, online=True)
+
+        class Fake:
+            def status(self, device_id):
+                return {"doorbell": {"online": True, "battery_status": {"percentage": 12}},
+                        "chime": {"online": False}}[device_id]            # chimes report no battery_status
+
+        self.assertEqual(tasks.poll_ring_status(client=Fake()), {"polled": 2})
+        self.assertEqual(DeviceStatus.objects.get(device="doorbell").battery, 12)
+        d = DeviceStatus.objects.get(device="chime")
+        self.assertEqual((d.battery, d.online), (50, False))
+
+    def test_poll_without_token_is_a_noop(self):
+        self.assertEqual(tasks.poll_ring_status()["polled"], 0)
+
+
+@override_settings(RING_SIMULATOR=False)
+class SimulatorGateTests(TestCase):
+    def test_simulator_is_disabled_unless_enabled(self):
+        from watch import simulator
+        from django.test import RequestFactory
+        from django.http import Http404
+        with self.assertRaises(Http404):
+            simulator.page(RequestFactory().get("/simulator/"))

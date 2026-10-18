@@ -15,7 +15,7 @@ Nothing in this file was verified against a live AWS account.
 | Bedrock AgentCore | **Not integrated** | See below. Documented as a future hosting target for the advisor, not shipped as dead code. |
 | SageMaker | **Not integrated** | No real model fits yet. See below. |
 | SQS + dead-letter queue | **Integrated** (`watch/aws/queue.py`, `manage.py sqs_worker`, `infra/quiet-morning.yml`) | Decouples Ring webhook bursts from the worker, gives retries + DLQ + an alarm, replaces Redis for the AWS path. |
-| Lambda function URL (Ring edge) | **Integrated** (`infra/lambda_ingest.py`) | Cheapest public HTTPS endpoint, no API Gateway needed. HMAC check in code, reserved concurrency as a throttle. |
+| Lambda function URL (Ring edge) | **Integrated** (`infra/lambda_ingest.py`) | Cheapest public HTTPS endpoint, no API Gateway needed. `X-Signature` HMAC check in code, reserved concurrency as a throttle. |
 | EventBridge Scheduler | **Integrated as an option** | Replaces Celery beat (a single point of failure that must run exactly once). Celery path still works unchanged. |
 | RDS Postgres | **Integrated** (`DATABASE_URL`, template) | Real row locks for escalation (`select_for_update`), backups, multi-worker safety. |
 | Secrets Manager | **Integrated** (Ring secret in template; RDS-managed master password) | No secrets in images/env files. |
@@ -73,7 +73,7 @@ Lambda function URLs
 ## Not verified in docs (TODO-verify)
 - IAM action names authorising Converse (`bedrock:InvokeModel`?) and ApplyGuardrail in the task role.
 - `AWS::Scheduler::Schedule`, `AWS::Lambda::Url`, `ManageMasterUserPassword`: accepted by cfn-lint schemas, not deployed.
-- Ring: nothing in this repo claims a real Ring signature scheme, heartbeat or battery events. The HMAC in `watch/webhook.py` and the Lambda is still a labelled placeholder.
+- Ring: the signature scheme and event envelope follow the Ring developer docs (`watch/ringapi.py`) but have not been exercised with live Ring traffic. Ring documents no battery webhook (battery is polled) and `device_online` can serve as a heartbeat.
 - Live latency, cold starts, throttling, guardrail false-positive rate, real cost.
 
 ## Cost drivers (no prices verified)

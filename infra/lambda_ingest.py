@@ -1,6 +1,7 @@
 """Ring webhook edge: Lambda function URL -> verify HMAC -> SQS. Deliberately tiny and dependency-free
-(boto3 is in the Lambda Python runtime). The Django worker re-validates and stores. Placeholder signature scheme:
-see TODO-verify in watch/webhook.py. Env: QUEUE_URL, SECRET_ARN (Secrets Manager secret holding the shared secret)."""
+(boto3 is in the Lambda Python runtime). The Django worker re-validates and stores. Signature scheme (from the Ring
+docs): `X-Signature: sha256=<hex HMAC-SHA256 of the raw body>`. Env: QUEUE_URL, SECRET_ARN (Secrets Manager secret
+holding the signing key)."""
 import base64
 import hashlib
 import hmac
@@ -28,9 +29,10 @@ def handler(event, context, sqs=None, sm=None):
     raw = base64.b64decode(body) if event.get("isBase64Encoded") else body.encode()
     if len(raw) > 64 * 1024:
         return {"statusCode": 413, "body": "too large"}
-    sig = headers.get("x-ring-signature", "")
+    sig = headers.get("x-signature", "")
     expected = hmac.new(_get_secret(sm).encode(), raw, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(sig, expected):
+    given = sig[7:] if sig.lower().startswith("sha256=") else sig
+    if not hmac.compare_digest(given.lower(), expected):
         return {"statusCode": 403, "body": ""}
     if sqs is None:
         import boto3

@@ -60,3 +60,30 @@ def purge_old_data():
 def send_weekly_summaries():
     from .summary import send_all
     return send_all()
+
+
+@shared_task
+def poll_ring_status(client=None):
+    """Refresh battery and online state for every known device from GET /v1/devices/{id}/status.
+    Ring sends no battery webhook, so this is the only source of battery. No-op without RING_ACCESS_TOKEN."""
+    from django.conf import settings
+    from .models import DeviceStatus
+    from .ringapi import RingClient
+    if client is None:
+        if not settings.RING_ACCESS_TOKEN:
+            return {"polled": 0, "skipped": "no RING_ACCESS_TOKEN"}
+        client = RingClient(settings.RING_ACCESS_TOKEN, settings.RING_API_BASE)
+    polled = 0
+    for d in DeviceStatus.objects.all():
+        try:
+            pct, online = RingClient.battery_and_online(client.status(d.device))
+        except Exception:
+            log.exception("status poll failed", extra={"device": d.device[:40]})
+            continue
+        if pct is not None:
+            d.battery = pct
+        if online is not None:
+            d.online = online
+        d.save()
+        polled += 1
+    return {"polled": polled}

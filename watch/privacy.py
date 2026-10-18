@@ -6,9 +6,9 @@ generated from the same constants, so what we promise and what we enforce cannot
 """
 import re
 
-# Keys we are willing to store. Names other than event_type/created_at/location_id/device_id are our own
-# generic schema; TODO-verify against the real Ring payload before relying on them.
-ALLOWED_KEYS = ("event_id", "id", "event_type", "device_id", "location_id", "created_at", "battery", "status", "online")
+# Keys we are willing to store. event_type, device_id, event_id, created_at and sub_type come from Ring's documented
+# envelope (see watch/ringapi.py); battery/online/status are filled from device-status polling.
+ALLOWED_KEYS = ("event_id", "id", "event_type", "device_id", "location_id", "created_at", "sub_type", "battery", "status", "online")
 NEVER_STORED = ("video", "video_url", "snapshot_url", "image", "thumbnail", "audio", "recording", "stream", "face", "transcript")
 _URL = re.compile(r"^\s*(https?:)?//|^data:", re.I)
 MAX_STR = 120
